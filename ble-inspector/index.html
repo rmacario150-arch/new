@@ -163,7 +163,7 @@
     <pre id="log" aria-live="polite"></pre>
   </section>
 
-  <footer>Only connect to devices you own or have permission to test. Works in Chrome or Edge on Android and desktop. On iPhone, use a browser that supports Web Bluetooth, such as Bluefy.</footer>
+  <footer>Only connect to devices you own or have permission to test. Works in Chrome or Edge on Android and desktop. On iPhone, use a browser that supports Web Bluetooth, such as Bluefy. <span id="version"></span></footer>
 </main>
 
 <script>
@@ -476,6 +476,9 @@ function checkSupport() {
 $('choose').addEventListener('click', chooseDevice);
 $('disconnect').addEventListener('click', disconnect);
 $('read-all').addEventListener('click', readAll);
+const VERSION = '3 (recognizes short UUIDs)';
+$('version').textContent = 'Version ' + VERSION + '.';
+log('BLE Inspector version ' + VERSION);
 checkSupport();
 </script>
 </body>
