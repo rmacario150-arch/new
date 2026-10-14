@@ -2,217 +2,316 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#eef1f6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0a0e14" media="(prefers-color-scheme: dark)">
 <title>BLE Inspector</title>
 <style>
   :root {
-    --bg: #f6f7f9;
-    --card: #ffffff;
-    --text: #1b1f24;
-    --muted: #5d6673;
-    --line: #dde1e6;
-    --accent: #2563eb;
-    --accent-text: #ffffff;
+    --bg: #eef1f6;
+    --glow: rgba(15, 118, 110, 0.10);
+    --surface: #ffffff;
+    --surface-2: #f3f6fa;
+    --line: #dce2ec;
+    --text: #0f1724;
+    --muted: #5a6579;
+    --accent: #0f766e;
+    --accent-ink: #ffffff;
     --ok: #15803d;
-    --warn-bg: #fff4d6;
-    --warn-text: #5c4400;
+    --notice-bg: #fff4d6;
+    --notice-fg: #5c4400;
+    --dial-track: #e1e7f0;
+    --chip-read-bg: #dbeafe;   --chip-read-fg: #1d4ed8;
+    --chip-write-bg: #ffedd5;  --chip-write-fg: #9a3412;
+    --chip-notify-bg: #dcfce7; --chip-notify-fg: #166534;
+    --chip-other-bg: #eef1f6;  --chip-other-fg: #5a6579;
+    --shadow: 0 1px 2px rgba(15, 23, 36, 0.05), 0 16px 30px -20px rgba(15, 23, 36, 0.28);
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0f1216;
-      --card: #181c22;
-      --text: #e8ebef;
-      --muted: #9aa4b2;
-      --line: #2a313a;
-      --accent: #5b8def;
-      --accent-text: #0b1020;
+      --bg: #0a0e14;
+      --glow: rgba(45, 212, 191, 0.10);
+      --surface: #121923;
+      --surface-2: #0d131b;
+      --line: #212c3b;
+      --text: #e8edf5;
+      --muted: #8c99ad;
+      --accent: #2dd4bf;
+      --accent-ink: #04201c;
       --ok: #4ade80;
-      --warn-bg: #3a2f10;
-      --warn-text: #f3e2a8;
+      --notice-bg: #3a2f10;
+      --notice-fg: #f3e2a8;
+      --dial-track: #1d2735;
+      --chip-read-bg: #172554;   --chip-read-fg: #93c5fd;
+      --chip-write-bg: #431407;  --chip-write-fg: #fdba74;
+      --chip-notify-bg: #052e16; --chip-notify-fg: #86efac;
+      --chip-other-bg: #1a2230;  --chip-other-fg: #8c99ad;
+      --shadow: none;
     }
   }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { -webkit-text-size-adjust: 100%; }
   body {
     margin: 0;
-    background: var(--bg);
+    background: radial-gradient(900px 380px at 50% -180px, var(--glow), transparent), var(--bg);
+    background-attachment: fixed;
     color: var(--text);
-    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, system-ui, sans-serif;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
-  main { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
-  h1 { font-size: 1.5rem; margin: 0 0 4px; }
-  h2 { font-size: 1.05rem; margin: 28px 0 8px; }
-  .sub { color: var(--muted); margin: 0 0 20px; }
-  .notice {
-    background: var(--warn-bg);
-    color: var(--warn-text);
-    border-radius: 10px;
-    padding: 12px 14px;
-    margin-bottom: 16px;
+  main {
+    max-width: 560px;
+    margin: 0 auto;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-bottom: 40px;
   }
-  .card {
-    background: var(--card);
+
+  /* ---- App bar ---- */
+  .appbar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    padding-top: calc(env(safe-area-inset-top, 0px) + 14px);
+    padding-bottom: 10px;
+    margin: 0 -16px 8px;
+    padding-left: 16px;
+    padding-right: 16px;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    -webkit-backdrop-filter: saturate(1.4) blur(16px);
+    backdrop-filter: saturate(1.4) blur(16px);
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo { flex: none; width: 40px; height: 40px; border-radius: 12px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; }
+  .logo svg { width: 24px; height: 24px; }
+  h1 { font-size: 1.3rem; line-height: 1.15; letter-spacing: -0.02em; margin: 0; }
+  .sub { color: var(--muted); font-size: 0.88rem; margin: 2px 0 0; }
+  .pill {
+    margin-left: auto;
+    flex: none;
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 0.75rem; font-weight: 600;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 14px;
-    margin-bottom: 12px;
+    color: var(--muted);
+  }
+  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .pill.ready { color: var(--ok); }
+  .pill.ready::before { background: var(--ok); }
+
+  .tabs {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+    margin-top: 14px;
+    padding: 4px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+  }
+  .tabs button {
+    min-height: 40px;
+    border: 0;
+    border-radius: 10px;
+    background: none;
+    color: var(--muted);
+    font-weight: 600;
+    box-shadow: none;
+  }
+  .tabs button[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
+
+  /* ---- Basic parts ---- */
+  .notice { background: var(--notice-bg); color: var(--notice-fg); border-radius: 14px; padding: 12px 14px; margin: 8px 0 12px; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 16px;
+    margin-top: 12px;
+    box-shadow: var(--shadow);
   }
   button {
     font: inherit;
-    border: 1px solid var(--line);
-    background: var(--card);
+    font-weight: 600;
     color: var(--text);
-    border-radius: 10px;
-    padding: 10px 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 10px 16px;
     min-height: 44px;
     cursor: pointer;
   }
+  button:active { transform: scale(0.98); }
+  button:focus-visible, summary:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
   button.primary {
+    width: 100%;
+    min-height: 54px;
+    margin-top: 6px;
     background: var(--accent);
-    color: var(--accent-text);
     border-color: var(--accent);
-    font-weight: 600;
-    width: 100%;
+    color: var(--accent-ink);
+    font-size: 1.02rem;
+    border-radius: 16px;
   }
-  button.small { min-height: 36px; padding: 6px 12px; font-size: 0.9rem; }
-  button[disabled] { opacity: 0.5; cursor: default; }
-  button.on { border-color: var(--ok); color: var(--ok); }
-  details { margin: 12px 0; }
-  summary { cursor: pointer; color: var(--muted); }
-  input[type=text] {
-    width: 100%;
-    font: inherit;
-    padding: 10px 12px;
-    margin-top: 8px;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: var(--card);
-    color: var(--text);
-  }
-  .hint { color: var(--muted); font-size: 0.88rem; margin: 6px 0 0; }
+  button.small { min-height: 38px; padding: 6px 14px; font-size: 0.9rem; border-radius: 12px; background: var(--surface-2); }
+  button.on { color: var(--accent); border-color: var(--accent); }
+  button[disabled] { opacity: 0.45; cursor: default; }
+  .hint { color: var(--muted); font-size: 0.86rem; margin: 10px 2px 0; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .grow { flex: 1 1 auto; min-width: 0; }
-  .name { font-weight: 600; overflow-wrap: anywhere; }
-  .uuid { color: var(--muted); font: 0.8rem ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
-  .status { font-size: 0.9rem; color: var(--muted); }
+  .name { font-weight: 650; overflow-wrap: anywhere; }
+  .uuid { color: var(--muted); font: 0.78rem/1.4 var(--mono); overflow-wrap: anywhere; }
+  .status { display: flex; align-items: center; gap: 7px; font-size: 0.86rem; color: var(--muted); }
+  .status::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: 0.6; }
   .status.connected { color: var(--ok); }
-  .chars { margin-top: 10px; border-top: 1px solid var(--line); }
-  .char { padding: 10px 0; border-bottom: 1px solid var(--line); }
-  .char:last-child { border-bottom: 0; padding-bottom: 0; }
-  .chips { display: flex; gap: 4px; flex-wrap: wrap; margin: 6px 0; }
-  .chip {
-    font-size: 0.75rem;
-    padding: 2px 8px;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    color: var(--muted);
-  }
-  .value {
-    margin-top: 8px;
-    font: 0.85rem ui-monospace, Menlo, Consolas, monospace;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-  }
-  #log {
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 12px;
-    margin: 0;
-    max-height: 220px;
-    overflow: auto;
-    font: 0.8rem/1.5 ui-monospace, Menlo, Consolas, monospace;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-  }
-  footer { color: var(--muted); font-size: 0.85rem; margin-top: 28px; }
+  .status.connected::before { background: var(--ok); opacity: 1; }
 
-  .tabs { display: flex; gap: 6px; margin: 0 0 16px; border-bottom: 1px solid var(--line); }
-  .tabs button {
-    border: 0;
-    border-bottom: 3px solid transparent;
-    border-radius: 0;
-    background: none;
-    padding: 10px 14px;
-    font-weight: 600;
-    color: var(--muted);
-  }
-  .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
-  .big { font-size: 2rem; font-weight: 700; line-height: 1.15; margin-top: 6px; }
-  .reading { font: 0.95rem ui-monospace, Menlo, Consolas, monospace; color: var(--muted); }
-  .gauge {
-    height: 14px;
-    border-radius: 999px;
-    background: var(--bg);
-    border: 1px solid var(--line);
-    overflow: hidden;
-    margin: 14px 0 4px;
-  }
-  .gauge > div { height: 100%; width: 0; background: var(--accent); border-radius: 999px; transition: width 0.3s; }
-  .gauge-scale { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--muted); }
-  .spark { width: 100%; height: 80px; margin-top: 14px; display: block; }
-  .spark line { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
-  .spark polyline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-  #prox-list { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
-  #prox-resume { margin-top: 12px; }
-  #prox-mode {
-    display: block;
+  details { margin: 14px 0 0; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 0 14px; }
+  summary { cursor: pointer; color: var(--muted); font-weight: 600; font-size: 0.92rem; padding: 12px 0; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; font-size: 1.2rem; line-height: 1; }
+  details[open] > summary::after { content: "\2212"; }
+  details > :last-child { margin-bottom: 14px; }
+  input[type=text], select {
     width: 100%;
     font: inherit;
-    padding: 10px 12px;
-    margin-top: 16px;
+    padding: 12px 14px;
+    min-height: 48px;
     border: 1px solid var(--line);
-    border-radius: 10px;
-    background: var(--card);
+    border-radius: 14px;
+    background: var(--surface-2);
     color: var(--text);
   }
-  label.field-label { display: block; margin-top: 16px; }
-  label.field-label + #prox-mode { margin-top: 6px; }
-  .prox-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  input[type=text] { margin-top: 4px; }
+  label.field-label { display: block; margin: 18px 2px 6px; font-weight: 650; font-size: 0.9rem; }
+  select { appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 20px) 50%, calc(100% - 14px) 50%; background-size: 6px 6px; background-repeat: no-repeat; padding-right: 36px; }
+
+  /* ---- Inspect ---- */
+  .chars { margin-top: 12px; border-top: 1px solid var(--line); }
+  .char { padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .char:last-child { border-bottom: 0; padding-bottom: 0; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+  .chip { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em; padding: 3px 9px; border-radius: 999px; background: var(--chip-other-bg); color: var(--chip-other-fg); }
+  .chip.c-read { background: var(--chip-read-bg); color: var(--chip-read-fg); }
+  .chip.c-write { background: var(--chip-write-bg); color: var(--chip-write-fg); }
+  .chip.c-notify { background: var(--chip-notify-bg); color: var(--chip-notify-fg); }
+  .value {
+    margin-top: 10px;
+    padding: 10px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    font: 0.82rem/1.5 var(--mono);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  /* ---- Proximity ---- */
+  #prox-list { display: flex; flex-direction: column; gap: 0; }
+  .tracker { text-align: center; --signal: var(--accent); }
+  .tracker .row { text-align: left; }
+  .tracker .status { justify-content: center; margin-top: 6px; }
+  .dial { position: relative; width: 184px; height: 184px; margin: 10px auto 0; }
+  .dial svg { width: 100%; height: 100%; display: block; }
+  .dial circle { fill: none; stroke-width: 9; }
+  .dial-track { stroke: var(--dial-track); }
+  .dial-fill { stroke: var(--signal); stroke-linecap: round; stroke-dasharray: 326.73; stroke-dashoffset: 326.73; transition: stroke-dashoffset 0.5s ease, stroke 0.5s ease; }
+  .dial-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .dial-num { font-size: 2.6rem; font-weight: 700; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .dial-unit { font-size: 0.78rem; color: var(--muted); margin-top: 4px; letter-spacing: 0.06em; }
+  .big { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; margin-top: 12px; }
+  .reading { color: var(--muted); font-size: 0.9rem; }
+  .tracker .hint { text-align: center; }
+  .tracker[data-state="searching"] .dial-fill { stroke-dashoffset: 326.73; }
+  .tracker[data-state="lost"] .dial { opacity: 0.45; }
+  .tracker[data-state="lost"] .big { color: var(--muted); }
+  .spark { width: 100%; height: 72px; margin-top: 14px; display: block; border-radius: 12px; background: var(--surface-2); }
+  .spark line { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .spark polyline { fill: none; stroke: var(--signal); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  .spark polygon { fill: var(--signal); opacity: 0.14; }
+  .prox-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+  #prox-resume { margin-top: 12px; width: 100%; }
+
+  /* ---- Log and footer ---- */
+  #log {
+    margin: 0;
+    padding: 0 0 4px;
+    max-height: 220px;
+    overflow: auto;
+    font: 0.78rem/1.6 var(--mono);
+    color: var(--muted);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  footer { color: var(--muted); font-size: 0.82rem; margin: 24px 2px 0; }
+  #version { display: inline-block; font-weight: 600; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    #services .card, #prox-list .card { animation: rise 0.3s ease both; }
+    @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  }
 </style>
 </head>
 <body>
 <main>
-  <h1>BLE Inspector</h1>
-  <p class="sub">Look inside a Bluetooth Low Energy device you own, or watch how close it is.</p>
-
-  <div id="unsupported" class="notice" hidden></div>
-
-  <section id="app">
+  <header class="appbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"></circle>
+          <path d="M8.2 8.2a5.4 5.4 0 0 0 0 7.6M15.8 8.2a5.4 5.4 0 0 1 0 7.6"></path>
+          <path d="M5.2 5.2a9.6 9.6 0 0 0 0 13.6M18.8 5.2a9.6 9.6 0 0 1 0 13.6"></path>
+        </svg>
+      </div>
+      <div>
+        <h1>BLE Inspector</h1>
+        <p class="sub">Your Bluetooth toolkit</p>
+      </div>
+      <span class="pill" id="env-chip">Checking</span>
+    </div>
     <div class="tabs" role="tablist" aria-label="Tools">
       <button id="tab-inspect" role="tab" aria-selected="true" aria-controls="panel-inspect">Inspect</button>
       <button id="tab-prox" role="tab" aria-selected="false" aria-controls="panel-prox">Proximity</button>
     </div>
+  </header>
 
+  <div id="unsupported" class="notice" hidden></div>
+
+  <section id="app">
     <div id="panel-inspect" role="tabpanel" aria-labelledby="tab-inspect">
-    <button id="choose" class="primary">Choose a device</button>
-    <p class="hint">Your browser shows a list of nearby devices. Pick one of your own. Nothing is sent anywhere: this page talks to the device directly, and reads only.</p>
+      <button id="choose" class="primary">Choose a device</button>
+      <p class="hint">Your browser shows a list of nearby devices. Pick one of your own. Nothing is sent anywhere: this page talks to the device directly, and reads only.</p>
 
-    <details>
-      <summary>Custom service UUIDs (for your own projects)</summary>
-      <input id="custom" type="text" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false"
-             placeholder="e.g. 4fafc201-1fb5-459e-8fcc-c5c9c331914b, ffe0">
-      <p class="hint">Browsers only reveal services you ask for ahead of time. Common standard services are included automatically. If you built the device yourself (an ESP32 sketch, for example), add its service UUIDs here, separated by commas, before you choose the device.</p>
-    </details>
+      <details>
+        <summary>Custom service UUIDs</summary>
+        <input id="custom" type="text" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false"
+               placeholder="e.g. 4fafc201-1fb5-459e-8fcc-c5c9c331914b, ffe0">
+        <p class="hint">Browsers only reveal services you ask for ahead of time. Common standard services are included automatically. If you built the device yourself (an ESP32 sketch, for example), add its service UUIDs here, separated by commas, before you choose the device.</p>
+      </details>
 
-    <div id="device" class="card" hidden>
-      <div class="row">
-        <div class="grow">
-          <div class="name" id="dev-name"></div>
-          <div class="uuid" id="dev-id"></div>
-          <div class="status" id="dev-status"></div>
+      <div id="device" class="card" hidden>
+        <div class="name" id="dev-name"></div>
+        <div class="uuid" id="dev-id"></div>
+        <div class="status" id="dev-status"></div>
+        <div class="prox-actions">
+          <button id="read-all" class="small">Read all</button>
+          <button id="disconnect" class="small">Disconnect</button>
         </div>
-        <button id="read-all" class="small">Read all</button>
-        <button id="disconnect" class="small">Disconnect</button>
       </div>
-    </div>
 
-    <div id="services"></div>
+      <div id="services"></div>
     </div>
 
     <div id="panel-prox" role="tabpanel" aria-labelledby="tab-prox" hidden>
       <div id="prox-unsupported" class="notice" hidden></div>
       <button id="prox-choose" class="primary">Add a device to track</button>
       <p class="hint">Pick one of your own devices. The page listens for its Bluetooth broadcasts and shows how strong the signal is. A stronger signal usually means the device is closer. You can add several devices, and each gets its own card. Calibration is remembered on this phone. Nothing is sent anywhere.</p>
+      <button id="prox-resume" class="small" hidden></button>
+
+      <div id="prox-list"></div>
+      <p class="hint" id="prox-hint">Treat this as hot and cold, not a ruler. Walls, bags, and bodies change the signal. For a better distance guess, hold a device about 1 m away and tap "Calibrate at 1 m" on its card. Sound follows one device at a time.</p>
+
       <label class="field-label" for="prox-mode">Listening mode</label>
       <select id="prox-mode">
         <option value="auto">Automatic</option>
@@ -221,38 +320,45 @@
         <option value="rotate">Devices take turns</option>
       </select>
       <p class="hint">If readings keep stopping, try another mode. Each card shows what is being used.</p>
-      <button id="prox-resume" class="small" hidden></button>
-
-      <div id="prox-list"></div>
-      <p class="hint" id="prox-hint">Treat this as hot and cold, not a ruler. Walls, bags, and bodies change the signal. For a better distance guess, hold a device about 1 m away and tap "Device is 1 m away" on its card. Sound follows one device at a time.</p>
 
       <template id="tracker-template">
-        <div class="card">
+        <div class="card tracker" data-state="searching">
           <div class="row">
             <div class="name grow" data-f="name"></div>
             <button class="small" data-f="remove">Remove</button>
           </div>
           <div class="status" data-f="status"></div>
+          <div class="dial">
+            <svg viewBox="0 0 120 120" aria-hidden="true">
+              <circle class="dial-track" cx="60" cy="60" r="52"></circle>
+              <circle class="dial-fill" data-f="ring" cx="60" cy="60" r="52" transform="rotate(-90 60 60)"></circle>
+            </svg>
+            <div class="dial-center">
+              <div class="dial-num" data-f="num">&ndash;</div>
+              <div class="dial-unit">dBm</div>
+            </div>
+          </div>
           <div class="big" data-f="label">Listening…</div>
           <div class="reading" data-f="reading"></div>
-          <div class="hint" data-f="stats"></div>
-          <div class="gauge" aria-hidden="true"><div data-f="fill"></div></div>
-          <div class="gauge-scale" aria-hidden="true"><span>Far</span><span>Close</span></div>
           <svg class="spark" viewBox="0 0 300 80" preserveAspectRatio="none" role="img" aria-label="Signal strength over the last readings">
             <line x1="0" y1="26.7" x2="300" y2="26.7"></line>
             <line x1="0" y1="53.3" x2="300" y2="53.3"></line>
+            <polygon data-f="area" points=""></polygon>
             <polyline data-f="line" points=""></polyline>
           </svg>
+          <div class="hint" data-f="stats"></div>
           <div class="prox-actions">
-            <button class="small" data-f="calibrate">Device is 1 m away</button>
+            <button class="small" data-f="calibrate">Calibrate at 1 m</button>
             <button class="small" data-f="sound">Sound: off</button>
           </div>
         </div>
       </template>
     </div>
 
-    <h2>Log</h2>
-    <pre id="log" aria-live="polite"></pre>
+    <details id="logbox">
+      <summary>Activity log</summary>
+      <pre id="log" aria-live="polite"></pre>
+    </details>
   </section>
 
   <footer>Only connect to devices you own or have permission to test. Works in Chrome or Edge on Android and desktop. On iPhone, use a browser that supports Web Bluetooth, such as Bluefy. <span id="version"></span></footer>
@@ -455,6 +561,13 @@ async function renderService(service) {
   for (const ch of characteristics) list.append(renderCharacteristic(ch));
 }
 
+function chipClass(property) {
+  if (property === 'read') return 'c-read';
+  if (property.startsWith('write')) return 'c-write';
+  if (property === 'notify' || property === 'indicate') return 'c-notify';
+  return '';
+}
+
 function renderCharacteristic(ch) {
   const props = Object.entries(ch.properties).filter(([, on]) => on).map(([name]) => name);
   const valueBox = el('div', { class: 'value' });
@@ -478,7 +591,7 @@ function renderCharacteristic(ch) {
   return el('div', { class: 'char' }, [
     el('div', { class: 'name', text: knownName(ch.uuid, CHARACTERISTICS) || 'Custom characteristic' }),
     el('div', { class: 'uuid', text: ch.uuid }),
-    el('div', { class: 'chips' }, props.map(p => el('span', { class: 'chip', text: p }))),
+    el('div', { class: 'chips' }, props.map(p => el('span', { class: 'chip ' + chipClass(p), text: p }))),
     actions,
     valueBox,
   ]);
@@ -552,6 +665,7 @@ const HISTORY = 60;           // readings kept for each graph
 const LOST_AFTER_MS = 20000;  // no broadcast for this long means out of range
 const REARM_AFTER_MS = 3000;  // restart listening if it has been quiet this long
 const MAX_TRACKED = 6;
+const RING_LENGTH = 326.73;   // circumference of the dial (2 x pi x 52)
 const SLOT_MS = 2500;         // how long each device gets when taking turns
 const STARVE_MS = 8000;       // a device this quiet while another is heard is being starved
 const SCAN_GRACE_MS = 6000;   // give the continuous scan this long to report anything
@@ -887,7 +1001,7 @@ function renderTracker(t) {
     ui.status.textContent = `Not heard for ${secs} s. Move closer or wake the device.`;
   } else {
     ui.label.textContent = signalLabel(t.smooth);
-    ui.reading.textContent = `${Math.round(t.smooth)} dBm, about ${roughDistance(t, t.smooth)} m (rough estimate)`;
+    ui.reading.textContent = `About ${roughDistance(t, t.smooth)} m, rough estimate`;
     ui.status.textContent = `Last heard ${secs} s ago`;
   }
   const readings = `${t.readings} reading${t.readings === 1 ? '' : 's'}`;
@@ -895,7 +1009,11 @@ function renderTracker(t) {
     ? `${readings}, continuous scan`
     : `${readings}, ${scanMode === 'rotate' && tracked.size > 1 ? 'taking turns' : 'listening'} restarted ${t.restarts} time${t.restarts === 1 ? '' : 's'}`;
   ui.status.classList.toggle('connected', heard && !lost);
-  ui.fill.style.width = (heard && !lost ? signalLevel(t.smooth) * 100 : 0) + '%';
+  const level = heard && !lost ? signalLevel(t.smooth) : 0;
+  ui.ring.style.strokeDashoffset = String(RING_LENGTH * (1 - level));
+  ui.root.style.setProperty('--signal', `hsl(${Math.round(35 + 125 * level)} 72% 50%)`);
+  ui.root.dataset.state = !heard ? 'searching' : lost ? 'lost' : 'live';
+  ui.num.textContent = heard ? String(Math.round(t.smooth)) : '\u2013';
   ui.sound.textContent = 'Sound: ' + (soundId === t.id ? 'on' : 'off');
   ui.sound.classList.toggle('on', soundId === t.id);
 
@@ -904,6 +1022,8 @@ function renderTracker(t) {
   const points = t.history.map((r, i) =>
     `${(300 - (n - 1 - i) * step).toFixed(1)},${(78 - signalLevel(r) * 76).toFixed(1)}`);
   ui.line.setAttribute('points', points.join(' '));
+  const firstX = n ? (300 - (n - 1) * step).toFixed(1) : '0';
+  ui.area.setAttribute('points', n ? `${firstX},80 ${points.join(' ')} 300,80` : '');
 }
 
 function calibrate(t) {
@@ -997,6 +1117,9 @@ function checkSupport() {
       ? 'Safari on iPhone and iPad does not support Web Bluetooth. Install a browser that does, such as Bluefy, and open this page there.'
       : 'This browser does not support Web Bluetooth. Try Chrome or Edge on Android or desktop.';
   }
+  const chip = $('env-chip');
+  chip.textContent = message ? 'Not supported' : 'Bluetooth ready';
+  chip.classList.toggle('ready', !message);
   if (message) {
     box.textContent = message;
     box.hidden = false;
@@ -1020,7 +1143,7 @@ $('prox-mode').addEventListener('change', event => {
   try { localStorage.setItem(MODE_KEY, modeChoice); } catch (_) { /* storage unavailable */ }
   applyMode();
 });
-const VERSION = '8 (listening modes)';
+const VERSION = '9 (new look)';
 $('version').textContent = 'Version ' + VERSION + '.';
 log('BLE Inspector version ' + VERSION);
 loadMode();
