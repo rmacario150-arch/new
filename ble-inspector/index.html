@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BLE Inspector</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --text: #1b1f24;
+    --muted: #5d6673;
+    --line: #dde1e6;
+    --accent: #2563eb;
+    --accent-text: #ffffff;
+    --ok: #15803d;
+    --warn-bg: #fff4d6;
+    --warn-text: #5c4400;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216;
+      --card: #181c22;
+      --text: #e8ebef;
+      --muted: #9aa4b2;
+      --line: #2a313a;
+      --accent: #5b8def;
+      --accent-text: #0b1020;
+      --ok: #4ade80;
+      --warn-bg: #3a2f10;
+      --warn-text: #f3e2a8;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  h2 { font-size: 1.05rem; margin: 28px 0 8px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .notice {
+    background: var(--warn-bg);
+    color: var(--warn-text);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 16px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+  button {
+    font: inherit;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 10px 14px;
+    min-height: 44px;
+    cursor: pointer;
+  }
+  button.primary {
+    background: var(--accent);
+    color: var(--accent-text);
+    border-color: var(--accent);
+    font-weight: 600;
+    width: 100%;
+  }
+  button.small { min-height: 36px; padding: 6px 12px; font-size: 0.9rem; }
+  button[disabled] { opacity: 0.5; cursor: default; }
+  button.on { border-color: var(--ok); color: var(--ok); }
+  details { margin: 12px 0; }
+  summary { cursor: pointer; color: var(--muted); }
+  input[type=text] {
+    width: 100%;
+    font: inherit;
+    padding: 10px 12px;
+    margin-top: 8px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--card);
+    color: var(--text);
+  }
+  .hint { color: var(--muted); font-size: 0.88rem; margin: 6px 0 0; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .grow { flex: 1 1 auto; min-width: 0; }
+  .name { font-weight: 600; overflow-wrap: anywhere; }
+  .uuid { color: var(--muted); font: 0.8rem ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+  .status { font-size: 0.9rem; color: var(--muted); }
+  .status.connected { color: var(--ok); }
+  .chars { margin-top: 10px; border-top: 1px solid var(--line); }
+  .char { padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .char:last-child { border-bottom: 0; padding-bottom: 0; }
+  .chips { display: flex; gap: 4px; flex-wrap: wrap; margin: 6px 0; }
+  .chip {
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--muted);
+  }
+  .value {
+    margin-top: 8px;
+    font: 0.85rem ui-monospace, Menlo, Consolas, monospace;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  #log {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px;
+    margin: 0;
+    max-height: 220px;
+    overflow: auto;
+    font: 0.8rem/1.5 ui-monospace, Menlo, Consolas, monospace;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  footer { color: var(--muted); font-size: 0.85rem; margin-top: 28px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>BLE Inspector</h1>
+  <p class="sub">Look inside a Bluetooth Low Energy device you own: its services, what each one can do, and the values it reports.</p>
+
+  <div id="unsupported" class="notice" hidden></div>
+
+  <section id="app">
+    <button id="choose" class="primary">Choose a device</button>
+    <p class="hint">Your browser shows a list of nearby devices. Pick one of your own. Nothing is sent anywhere: this page talks to the device directly, and reads only.</p>
+
+    <details>
+      <summary>Custom service UUIDs (for your own projects)</summary>
+      <input id="custom" type="text" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false"
+             placeholder="e.g. 4fafc201-1fb5-459e-8fcc-c5c9c331914b, ffe0">
+      <p class="hint">Browsers only reveal services you ask for ahead of time. Common standard services are included automatically. If you built the device yourself (an ESP32 sketch, for example), add its service UUIDs here, separated by commas, before you choose the device.</p>
+    </details>
+
+    <div id="device" class="card" hidden>
+      <div class="row">
+        <div class="grow">
+          <div class="name" id="dev-name"></div>
+          <div class="uuid" id="dev-id"></div>
+          <div class="status" id="dev-status"></div>
+        </div>
+        <button id="read-all" class="small">Read all</button>
+        <button id="disconnect" class="small">Disconnect</button>
+      </div>
+    </div>
+
+    <div id="services"></div>
+
+    <h2>Log</h2>
+    <pre id="log" aria-live="polite"></pre>
+  </section>
+
+  <footer>Only connect to devices you own or have permission to test. Works in Chrome or Edge on Android and desktop. On iPhone, use a browser that supports Web Bluetooth, such as Bluefy.</footer>
+</main>
+
+<script>
+'use strict';
+
+// ---------- Lookup tables (Bluetooth SIG assigned numbers) ----------
+const BASE = '-0000-1000-8000-00805f9b34fb';
+
+const SERVICES = {
+  0x1800: 'Generic Access',
+  0x1801: 'Generic Attribute',
+  0x1802: 'Immediate Alert',
+  0x1803: 'Link Loss',
+  0x1804: 'Tx Power',
+  0x1805: 'Current Time',
+  0x1808: 'Glucose',
+  0x1809: 'Health Thermometer',
+  0x180a: 'Device Information',
+  0x180d: 'Heart Rate',
+  0x180f: 'Battery',
+  0x1814: 'Running Speed and Cadence',
+  0x1816: 'Cycling Speed and Cadence',
+  0x1818: 'Cycling Power',
+  0x1819: 'Location and Navigation',
+  0x181a: 'Environmental Sensing',
+  0x181b: 'Body Composition',
+  0x181d: 'Weight Scale',
+  0x181c: 'User Data',
+};
+
+const CHARACTERISTICS = {
+  0x2a00: 'Device Name',
+  0x2a01: 'Appearance',
+  0x2a04: 'Preferred Connection Parameters',
+  0x2a05: 'Service Changed',
+  0x2a07: 'Tx Power Level',
+  0x2a19: 'Battery Level',
+  0x2a1c: 'Temperature Measurement',
+  0x2a23: 'System ID',
+  0x2a24: 'Model Number',
+  0x2a25: 'Serial Number',
+  0x2a26: 'Firmware Revision',
+  0x2a27: 'Hardware Revision',
+  0x2a28: 'Software Revision',
+  0x2a29: 'Manufacturer Name',
+  0x2a37: 'Heart Rate Measurement',
+  0x2a38: 'Body Sensor Location',
+  0x2a39: 'Heart Rate Control Point',
+  0x2a50: 'PnP ID',
+  0x2a6d: 'Pressure',
+  0x2a6e: 'Temperature',
+  0x2a6f: 'Humidity',
+};
+
+// ---------- Helpers ----------
+const $ = id => document.getElementById(id);
+const fullUuid = n => n.toString(16).padStart(8, '0') + BASE;
+
+function shortId(uuid) {
+  const m = /^0000([0-9a-f]{4})-0000-1000-8000-00805f9b34fb$/.exec(uuid);
+  return m ? parseInt(m[1], 16) : null;
+}
+
+function knownName(uuid, table) {
+  const s = shortId(uuid);
+  return s !== null && table[s] ? table[s] : null;
+}
+
+function shortLabel(uuid) {
+  const s = shortId(uuid);
+  return s !== null ? '0x' + s.toString(16).toUpperCase().padStart(4, '0') : uuid;
+}
+
+// Build a DOM element. All text goes through textContent, because device
+// names and values come from the device and must never be treated as HTML.
+function el(tag, opts = {}, children = []) {
+  const node = document.createElement(tag);
+  if (opts.class) node.className = opts.class;
+  if (opts.text !== undefined) node.textContent = opts.text;
+  for (const child of children) node.append(child);
+  return node;
+}
+
+function log(message) {
+  const box = $('log');
+  const time = new Date().toLocaleTimeString([], { hour12: false });
+  box.textContent = `${time}  ${message}\n` + box.textContent;
+  if (box.textContent.length > 20000) box.textContent = box.textContent.slice(0, 20000);
+}
+
+function describeError(e) {
+  if (e && e.name === 'NotFoundError') return 'No device chosen.';
+  if (e && e.name === 'SecurityError') return 'The device refused (it may need pairing or permission first).';
+  if (e && e.name === 'NetworkError') return 'Connection failed or dropped. Move closer and try again.';
+  if (e && e.name === 'NotSupportedError') return 'Not supported by this characteristic.';
+  return e && e.message ? `${e.name}: ${e.message}` : String(e);
+}
+
+// Parse the "custom UUIDs" box: 4-digit short IDs or full 128-bit UUIDs.
+function parseCustomUuids(text) {
+  const result = [];
+  for (const part of text.split(/[\s,]+/).filter(Boolean)) {
+    const p = part.toLowerCase();
+    if (/^[0-9a-f]{4}$/.test(p)) result.push(fullUuid(parseInt(p, 16)));
+    else if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(p)) result.push(p);
+    else log(`Ignored invalid UUID: ${part}`);
+  }
+  return result;
+}
+
+// Turn raw bytes into something readable.
+function describeValue(dataView, charUuid) {
+  const bytes = new Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength);
+  const lines = [];
+  lines.push('hex:  ' + (bytes.length ? [...bytes].map(b => b.toString(16).padStart(2, '0')).join(' ') : '(empty)'));
+
+  try {
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    if (text.length >= 2 && /^[\p{L}\p{N}\p{P}\p{S}\p{Zs}]+$/u.test(text)) lines.push('text: ' + text);
+  } catch (_) { /* not valid text */ }
+
+  if ([1, 2, 4].includes(bytes.length)) {
+    const n = bytes.length === 1 ? dataView.getUint8(0)
+            : bytes.length === 2 ? dataView.getUint16(0, true)
+            : dataView.getUint32(0, true);
+    lines.push('number: ' + n + ' (unsigned, little-endian)');
+  }
+  if (shortId(charUuid) === 0x2a19 && bytes.length === 1) lines.push('battery: ' + bytes[0] + '%');
+  return lines.join('\n');
+}
+
+// ---------- State ----------
+let currentDevice = null;
+const subscriptions = new Map(); // characteristic -> handler
+
+// ---------- Connect and render ----------
+async function chooseDevice() {
+  const optionalServices = [
+    ...Object.keys(SERVICES).map(k => fullUuid(Number(k))),
+    ...parseCustomUuids($('custom').value),
+  ];
+  try {
+    const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices });
+    await openDevice(device);
+  } catch (e) {
+    log(describeError(e));
+  }
+}
+
+async function openDevice(device) {
+  await closeDevice();
+  currentDevice = device;
+  device.addEventListener('gattserverdisconnected', onDisconnected);
+
+  $('device').hidden = false;
+  $('dev-name').textContent = device.name || '(unnamed device)';
+  $('dev-id').textContent = 'id: ' + device.id;
+  setStatus('Connecting…', false);
+  $('services').replaceChildren();
+
+  try {
+    const server = await device.gatt.connect();
+    setStatus('Connected', true);
+    log(`Connected to ${device.name || device.id}`);
+    const services = await server.getPrimaryServices();
+    if (!services.length) {
+      $('services').append(el('div', { class: 'card', text: 'No readable services were found. If this is a device you built, add its service UUIDs under "Custom service UUIDs" and choose it again.' }));
+    }
+    for (const service of services) await renderService(service);
+  } catch (e) {
+    log(describeError(e));
+    setStatus('Not connected', false);
+  }
+}
+
+async function renderService(service) {
+  const title = knownName(service.uuid, SERVICES);
+  const card = el('div', { class: 'card' }, [
+    el('div', { class: 'name', text: title || 'Custom service' }),
+    el('div', { class: 'uuid', text: service.uuid }),
+  ]);
+  const list = el('div', { class: 'chars' });
+  card.append(list);
+  $('services').append(card);
+
+  let characteristics = [];
+  try {
+    characteristics = await service.getCharacteristics();
+  } catch (e) {
+    list.append(el('div', { class: 'char', text: 'Could not list characteristics: ' + describeError(e) }));
+    return;
+  }
+  for (const ch of characteristics) list.append(renderCharacteristic(ch));
+}
+
+function renderCharacteristic(ch) {
+  const props = Object.entries(ch.properties).filter(([, on]) => on).map(([name]) => name);
+  const valueBox = el('div', { class: 'value' });
+  valueBox.hidden = true;
+  const showValue = dv => { valueBox.hidden = false; valueBox.textContent = describeValue(dv, ch.uuid); };
+
+  const actions = el('div', { class: 'row' });
+  if (ch.properties.read) {
+    const readBtn = el('button', { class: 'small', text: 'Read' });
+    readBtn.addEventListener('click', () => readCharacteristic(ch, showValue));
+    readBtn.dataset.read = '1';
+    readBtn._run = () => readCharacteristic(ch, showValue);
+    actions.append(readBtn);
+  }
+  if (ch.properties.notify || ch.properties.indicate) {
+    const subBtn = el('button', { class: 'small', text: 'Subscribe' });
+    subBtn.addEventListener('click', () => toggleSubscription(ch, subBtn, showValue));
+    actions.append(subBtn);
+  }
+
+  return el('div', { class: 'char' }, [
+    el('div', { class: 'name', text: knownName(ch.uuid, CHARACTERISTICS) || 'Custom characteristic' }),
+    el('div', { class: 'uuid', text: ch.uuid }),
+    el('div', { class: 'chips' }, props.map(p => el('span', { class: 'chip', text: p }))),
+    actions,
+    valueBox,
+  ]);
+}
+
+async function readCharacteristic(ch, show) {
+  try {
+    const dv = await ch.readValue();
+    show(dv);
+  } catch (e) {
+    log(`Read ${shortLabel(ch.uuid)}: ${describeError(e)}`);
+  }
+}
+
+async function toggleSubscription(ch, button, show) {
+  try {
+    if (subscriptions.has(ch)) {
+      await ch.stopNotifications();
+      ch.removeEventListener('characteristicvaluechanged', subscriptions.get(ch));
+      subscriptions.delete(ch);
+      button.textContent = 'Subscribe';
+      button.classList.remove('on');
+    } else {
+      const handler = event => {
+        show(event.target.value);
+        log(`${knownName(ch.uuid, CHARACTERISTICS) || shortLabel(ch.uuid)}: update received`);
+      };
+      ch.addEventListener('characteristicvaluechanged', handler);
+      await ch.startNotifications();
+      subscriptions.set(ch, handler);
+      button.textContent = 'Subscribed (tap to stop)';
+      button.classList.add('on');
+    }
+  } catch (e) {
+    log(`Subscribe ${shortLabel(ch.uuid)}: ${describeError(e)}`);
+  }
+}
+
+function setStatus(text, connected) {
+  const status = $('dev-status');
+  status.textContent = text;
+  status.classList.toggle('connected', connected);
+  $('read-all').disabled = !connected;
+  $('disconnect').disabled = !connected;
+}
+
+function onDisconnected() {
+  subscriptions.clear();
+  setStatus('Disconnected', false);
+  log('Device disconnected.');
+}
+
+async function closeDevice() {
+  if (!currentDevice) return;
+  currentDevice.removeEventListener('gattserverdisconnected', onDisconnected);
+  if (currentDevice.gatt && currentDevice.gatt.connected) currentDevice.gatt.disconnect();
+  subscriptions.clear();
+  currentDevice = null;
+}
+
+async function disconnect() {
+  if (currentDevice && currentDevice.gatt && currentDevice.gatt.connected) currentDevice.gatt.disconnect();
+}
+
+async function readAll() {
+  for (const btn of document.querySelectorAll('button[data-read]')) await btn._run();
+}
+
+// ---------- Start-up ----------
+function checkSupport() {
+  const box = $('unsupported');
+  let message = null;
+  if (!window.isSecureContext) {
+    message = 'Web Bluetooth only works on secure pages (https:// or localhost). Open this page from an https address.';
+  } else if (!navigator.bluetooth) {
+    message = /iPhone|iPad|iPod/.test(navigator.userAgent)
+      ? 'Safari on iPhone and iPad does not support Web Bluetooth. Install a browser that does, such as Bluefy, and open this page there.'
+      : 'This browser does not support Web Bluetooth. Try Chrome or Edge on Android or desktop.';
+  }
+  if (message) {
+    box.textContent = message;
+    box.hidden = false;
+    $('choose').disabled = true;
+  }
+}
+
+$('choose').addEventListener('click', chooseDevice);
+$('disconnect').addEventListener('click', disconnect);
+$('read-all').addEventListener('click', readAll);
+checkSupport();
+</script>
+</body>
+</html>
