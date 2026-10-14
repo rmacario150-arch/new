@@ -222,8 +222,12 @@ const CHARACTERISTICS = {
 const $ = id => document.getElementById(id);
 const fullUuid = n => n.toString(16).padStart(8, '0') + BASE;
 
+// Some browsers (Bluefy on iPhone) report standard UUIDs as short uppercase
+// strings like "180A", others as the full 128-bit form. Accept both.
 function shortId(uuid) {
-  const m = /^0000([0-9a-f]{4})-0000-1000-8000-00805f9b34fb$/.exec(uuid);
+  const u = String(uuid).toLowerCase();
+  const m = /^(?:0000)?([0-9a-f]{4})$/.exec(u)
+         || /^0000([0-9a-f]{4})-0000-1000-8000-00805f9b34fb$/.exec(u);
   return m ? parseInt(m[1], 16) : null;
 }
 
