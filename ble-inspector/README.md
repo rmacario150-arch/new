@@ -1,6 +1,9 @@
 # BLE Inspector
 
-A single-file web page (`index.html`) that connects to a Bluetooth Low Energy device you own and shows its services, characteristics, and values. Read-only. No dependencies, and nothing leaves your device.
+A single-file web page (`index.html`) with two tools for Bluetooth Low Energy devices you own. No dependencies, and nothing leaves your device.
+
+- **Inspect**: connects to a device and shows its services, characteristics, and values. Read-only.
+- **Proximity**: listens to a device's broadcasts and shows a live signal-strength reading, a close/far label, a rough distance, a short history graph, and an optional beeping sound that speeds up as you get closer. Needs a browser that supports `watchAdvertisements` (Bluefy does on iPhone). The distance is only a rough guess, so use "Device is 1 m away" to calibrate.
 
 ## Use it on a phone
 
@@ -18,5 +21,4 @@ Browsers only expose services that are named up front. Standard ones (battery, h
 
 ## Planned next
 
-- Proximity tracker (signal strength of your own devices)
 - Device controller (write to characteristics of devices you own)
