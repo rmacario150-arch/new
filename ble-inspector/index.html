@@ -204,6 +204,7 @@
         <div class="status" id="prox-status"></div>
         <div class="big" id="prox-label">Listening…</div>
         <div class="reading" id="prox-reading"></div>
+        <div class="hint" id="prox-stats"></div>
         <div class="gauge" aria-hidden="true"><div id="gauge-fill"></div></div>
         <div class="gauge-scale" aria-hidden="true"><span>Far</span><span>Close</span></div>
         <svg id="spark" viewBox="0 0 300 80" preserveAspectRatio="none" role="img" aria-label="Signal strength over the last readings">
@@ -518,11 +519,14 @@ async function readAll() {
 
 // ---------- Proximity ----------
 const HISTORY = 60;          // readings kept for the graph
-const LOST_AFTER_MS = 10000; // no broadcast for this long means out of range
+const LOST_AFTER_MS = 20000;  // no broadcast for this long means out of range
+const REARM_AFTER_MS = 3000;  // restart listening if it has been quiet this long
 const prox = {
   device: null, abort: null, timer: null, beepTimer: null, audio: null,
   smooth: null,  // smoothed signal strength in dBm
-  lastHeard: 0, history: [], ref: -59, sound: false,
+  lastHeard: 0, startedAt: 0, lastRearm: 0, arming: false,
+  readings: 0, restarts: 0,
+  history: [], ref: -59, sound: false,
 };
 
 function proxSupported() {
@@ -558,23 +562,46 @@ async function chooseProxDevice() {
 async function startTracking(device) {
   stopTracking();
   prox.device = device;
-  prox.abort = new AbortController();
+  prox.startedAt = prox.lastRearm = Date.now();
   device.addEventListener('advertisementreceived', onAdvertisement);
   $('prox-card').hidden = false;
   $('prox-name').textContent = device.name || '(unnamed device)';
-  prox.timer = setInterval(renderProximity, 1000);
+  prox.timer = setInterval(() => { maybeRestart(); renderProximity(); }, 1000);
   renderProximity();
+  if (await listen()) log(`Listening to ${device.name || device.id}`);
+  else stopTracking();
+}
+
+// Start (or restart) listening for the device's broadcasts. Some phones only
+// report a device when listening starts, so restarting gives fresh readings.
+async function listen() {
+  if (!prox.device || prox.arming) return true;
+  prox.arming = true;
   try {
-    await device.watchAdvertisements({ signal: prox.abort.signal });
-    log(`Listening to ${device.name || device.id}`);
+    if (prox.abort) prox.abort.abort();
+    prox.abort = new AbortController();
+    await prox.device.watchAdvertisements({ signal: prox.abort.signal });
+    return true;
   } catch (e) {
     log(`Could not listen: ${describeError(e)}`);
-    stopTracking();
+    return false;
+  } finally {
+    prox.arming = false;
   }
+}
+
+function maybeRestart() {
+  const now = Date.now();
+  const quietSince = Math.max(prox.lastHeard, prox.startedAt, prox.lastRearm);
+  if (now - quietSince < REARM_AFTER_MS) return;
+  prox.lastRearm = now;
+  prox.restarts += 1;
+  listen();
 }
 
 function onAdvertisement(event) {
   if (typeof event.rssi !== 'number') return;
+  prox.readings += 1;
   prox.smooth = prox.smooth === null ? event.rssi : prox.smooth + 0.3 * (event.rssi - prox.smooth);
   prox.lastHeard = Date.now();
   prox.history.push(prox.smooth);
@@ -590,7 +617,10 @@ function stopTracking() {
   if (prox.abort) prox.abort.abort();
   if (prox.timer) clearInterval(prox.timer);
   setSound(false);
-  Object.assign(prox, { device: null, abort: null, timer: null, smooth: null, lastHeard: 0, history: [] });
+  Object.assign(prox, {
+    device: null, abort: null, timer: null, smooth: null, lastHeard: 0,
+    arming: false, readings: 0, restarts: 0, history: [],
+  });
   $('prox-card').hidden = true;
 }
 
@@ -608,12 +638,13 @@ function renderProximity() {
   } else if (lost) {
     $('prox-label').textContent = 'Out of range';
     $('prox-reading').textContent = `Last signal ${Math.round(prox.smooth)} dBm, ${secs} s ago`;
-    $('prox-status').textContent = `Not heard for ${secs} s`;
+    $('prox-status').textContent = `Not heard for ${secs} s. Move closer or wake the device.`;
   } else {
     $('prox-label').textContent = signalLabel(prox.smooth);
     $('prox-reading').textContent = `${Math.round(prox.smooth)} dBm, about ${roughDistance(prox.smooth)} m (rough estimate)`;
     $('prox-status').textContent = `Last heard ${secs} s ago`;
   }
+  $('prox-stats').textContent = `${prox.readings} readings, listening restarted ${prox.restarts} times`;
   $('prox-status').classList.toggle('connected', heard && !lost);
   $('gauge-fill').style.width = (heard && !lost ? signalLevel(prox.smooth) * 100 : 0) + '%';
   drawSparkline();
@@ -722,7 +753,7 @@ $('prox-choose').addEventListener('click', chooseProxDevice);
 $('prox-calibrate').addEventListener('click', calibrate);
 $('prox-sound').addEventListener('click', () => setSound(!prox.sound));
 $('prox-stop').addEventListener('click', stopTracking);
-const VERSION = '4 (adds Proximity tab)';
+const VERSION = '5 (Proximity restarts listening when quiet)';
 $('version').textContent = 'Version ' + VERSION + '.';
 log('BLE Inspector version ' + VERSION);
 checkSupport();
