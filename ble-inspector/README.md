@@ -3,7 +3,7 @@
 A single-file web page (`index.html`) with two tools for Bluetooth Low Energy devices you own. No dependencies, and nothing leaves your device.
 
 - **Inspect**: connects to a device and shows its services, characteristics, and values. Read-only.
-- **Proximity**: listens to the broadcasts of one or more devices (up to 6) and shows, for each, a live signal-strength reading, a close/far label, a rough distance, a short history graph, and an optional beeping sound that speeds up as you get closer. Calibration is remembered on the phone. Needs a browser that supports `watchAdvertisements` (Bluefy does on iPhone). The distance is only a rough guess, so use "Device is 1 m away" to calibrate.
+- **Proximity**: listens to the broadcasts of one or more devices (up to 6) and shows, for each, a live signal-strength reading, a close/far label, a rough distance, a short history graph, and an optional beeping sound that speeds up as you get closer. Calibration is remembered on the phone. Needs a browser that supports `watchAdvertisements` (Bluefy does on iPhone). Where the browser can scan continuously, one scan hears every tracked device at once. Otherwise the devices take turns, so each is updated less often. The distance is only a rough guess, so use "Device is 1 m away" to calibrate.
 
 ## Use it on a phone
 

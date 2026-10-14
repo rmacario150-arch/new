@@ -531,6 +531,8 @@ const HISTORY = 60;           // readings kept for each graph
 const LOST_AFTER_MS = 20000;  // no broadcast for this long means out of range
 const REARM_AFTER_MS = 3000;  // restart listening if it has been quiet this long
 const MAX_TRACKED = 6;
+const SLOT_MS = 2500;         // how long each device gets when taking turns
+const SCAN_GRACE_MS = 6000;   // give the continuous scan this long to report anything
 const SAVE_KEY = 'ble-inspector.tracked';
 
 const tracked = new Map();    // device id -> tracker
@@ -538,6 +540,12 @@ let soundId = null;           // the tracker the beeps follow
 let audio = null;
 let beepTimer = null;
 let proxTimer = null;
+let scanMode = null;          // 'starting', 'scan' (one scan for all), or 'rotate' (devices take turns)
+let scanHandle = null;
+let scanStartedAt = 0;
+let scanHeard = 0;            // scan events received, for any device
+let turnAt = 0;
+let turnIndex = 0;
 
 function proxSupported() {
   return typeof BluetoothDevice !== 'undefined' && 'watchAdvertisements' in BluetoothDevice.prototype;
@@ -591,8 +599,14 @@ async function trackDevice(device) {
     return;
   }
   const t = addTracker(device);
-  if (await listen(t)) log(`Listening to ${t.name}`);
-  else removeTracker(t.id);
+  await startScanning();
+  // With one device the browser can listen to it directly. With several,
+  // the turn-taking in tick() decides who is listened to.
+  if (scanMode === 'rotate' && tracked.size === 1 && !(await listen(t))) {
+    removeTracker(t.id);
+    return;
+  }
+  log(`Tracking ${t.name}`);
 }
 
 function addTracker(device) {
@@ -638,8 +652,9 @@ function removeTracker(id) {
   t.ui.root.remove();
   tracked.delete(id);
   persist();
-  if (!tracked.size && proxTimer) {
-    clearInterval(proxTimer);
+  if (!tracked.size) {
+    stopScanning();
+    if (proxTimer) clearInterval(proxTimer);
     proxTimer = null;
   }
 }
@@ -682,17 +697,86 @@ function onAdvertisement(t, event) {
 }
 
 function tick() {
-  for (const t of tracked.values()) {
-    maybeRestart(t);
-    renderTracker(t);
+  if (scanMode === 'scan' && scanHeard === 0 && Date.now() - scanStartedAt > SCAN_GRACE_MS) {
+    log('The continuous scan reported nothing. Taking turns per device instead.');
+    stopScanning();
+    scanMode = 'rotate';
   }
+  if (scanMode === 'rotate') takeTurns();
+  for (const t of tracked.values()) renderTracker(t);
+}
+
+// Preferred: one scan that hears every tracked device at once. Phones that
+// cannot do that listen to one device at a time, so the devices take turns.
+async function startScanning() {
+  if (scanMode) return;
+  scanMode = 'starting';
+  if (!navigator.bluetooth.requestLEScan) {
+    scanMode = 'rotate';
+    return;
+  }
+  try {
+    scanHandle = await navigator.bluetooth.requestLEScan({ acceptAllDevices: true, keepRepeatedDevices: true });
+    navigator.bluetooth.addEventListener('advertisementreceived', onScanEvent);
+    scanMode = 'scan';
+    scanStartedAt = Date.now();
+    scanHeard = 0;
+    log('Scanning for all tracked devices at once.');
+  } catch (e) {
+    log(`Continuous scan not available (${describeError(e)}). Taking turns per device instead.`);
+    scanMode = 'rotate';
+  }
+}
+
+function stopScanning() {
+  if (scanMode === 'scan') {
+    navigator.bluetooth.removeEventListener('advertisementreceived', onScanEvent);
+    try { if (scanHandle && scanHandle.stop) scanHandle.stop(); } catch (_) { /* already stopped */ }
+  }
+  scanMode = null;
+  scanHandle = null;
+}
+
+function onScanEvent(event) {
+  scanHeard += 1;
+  const t = event.device && tracked.get(event.device.id);
+  if (t) onAdvertisement(t, event);
+}
+
+function takeTurns() {
+  const list = [...tracked.values()];
+  if (list.length === 1) {
+    maybeRestart(list[0]);
+    return;
+  }
+  const now = Date.now();
+  if (!list.length || now - turnAt < SLOT_MS) return;
+  turnAt = now;
+  const t = list[turnIndex % list.length];
+  turnIndex += 1;
+  for (const other of list) {
+    if (other !== t && other.abort) {
+      other.abort.abort();
+      other.abort = null;
+    }
+  }
+  t.restarts += 1;
+  t.lastRearm = now;
+  listen(t);
+}
+
+// With several devices taking turns, each is heard less often, so wait longer.
+function lostAfter() {
+  return scanMode === 'rotate' && tracked.size > 1
+    ? Math.max(LOST_AFTER_MS, tracked.size * SLOT_MS * 3)
+    : LOST_AFTER_MS;
 }
 
 function renderTracker(t) {
   const ui = t.ui;
   const heard = t.smooth !== null;
   const age = heard ? Date.now() - t.lastHeard : 0;
-  const lost = heard && age > LOST_AFTER_MS;
+  const lost = heard && age > lostAfter();
   const secs = Math.max(0, Math.round(age / 1000));
 
   if (!heard) {
@@ -708,7 +792,10 @@ function renderTracker(t) {
     ui.reading.textContent = `${Math.round(t.smooth)} dBm, about ${roughDistance(t, t.smooth)} m (rough estimate)`;
     ui.status.textContent = `Last heard ${secs} s ago`;
   }
-  ui.stats.textContent = `${t.readings} reading${t.readings === 1 ? '' : 's'}, listening restarted ${t.restarts} time${t.restarts === 1 ? '' : 's'}`;
+  const readings = `${t.readings} reading${t.readings === 1 ? '' : 's'}`;
+  ui.stats.textContent = scanMode === 'scan'
+    ? `${readings}, continuous scan`
+    : `${readings}, ${tracked.size > 1 ? 'taking turns' : 'listening'} restarted ${t.restarts} time${t.restarts === 1 ? '' : 's'}`;
   ui.status.classList.toggle('connected', heard && !lost);
   ui.fill.style.width = (heard && !lost ? signalLevel(t.smooth) * 100 : 0) + '%';
   ui.sound.textContent = 'Sound: ' + (soundId === t.id ? 'on' : 'off');
@@ -754,7 +841,7 @@ function beepLoop() {
   const t = tracked.get(soundId);
   if (!t) return;
   let wait = 600;
-  if (t.smooth !== null && Date.now() - t.lastHeard <= LOST_AFTER_MS) {
+  if (t.smooth !== null && Date.now() - t.lastHeard <= lostAfter()) {
     const level = signalLevel(t.smooth);
     beep(500 + level * 700);
     wait = 1200 - level * 1000;
@@ -830,7 +917,7 @@ $('read-all').addEventListener('click', readAll);
 $('tab-inspect').addEventListener('click', () => showTab('inspect'));
 $('tab-prox').addEventListener('click', () => showTab('prox'));
 $('prox-choose').addEventListener('click', chooseProxDevice);
-const VERSION = '6 (track several devices)';
+const VERSION = '7 (shared scan for several devices)';
 $('version').textContent = 'Version ' + VERSION + '.';
 log('BLE Inspector version ' + VERSION);
 checkSupport();
