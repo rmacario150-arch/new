@@ -154,6 +154,19 @@
   .spark polyline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
   #prox-list { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
   #prox-resume { margin-top: 12px; }
+  #prox-mode {
+    display: block;
+    width: 100%;
+    font: inherit;
+    padding: 10px 12px;
+    margin-top: 16px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--card);
+    color: var(--text);
+  }
+  label.field-label { display: block; margin-top: 16px; }
+  label.field-label + #prox-mode { margin-top: 6px; }
   .prox-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 </style>
 </head>
@@ -200,6 +213,14 @@
       <div id="prox-unsupported" class="notice" hidden></div>
       <button id="prox-choose" class="primary">Add a device to track</button>
       <p class="hint">Pick one of your own devices. The page listens for its Bluetooth broadcasts and shows how strong the signal is. A stronger signal usually means the device is closer. You can add several devices, and each gets its own card. Calibration is remembered on this phone. Nothing is sent anywhere.</p>
+      <label class="field-label" for="prox-mode">Listening mode</label>
+      <select id="prox-mode">
+        <option value="auto">Automatic</option>
+        <option value="scan">Continuous scan (all devices at once)</option>
+        <option value="together">Each device, restarted together</option>
+        <option value="rotate">Devices take turns</option>
+      </select>
+      <p class="hint">If readings keep stopping, try another mode. Each card shows what is being used.</p>
       <button id="prox-resume" class="small" hidden></button>
 
       <div id="prox-list"></div>
@@ -532,20 +553,24 @@ const LOST_AFTER_MS = 20000;  // no broadcast for this long means out of range
 const REARM_AFTER_MS = 3000;  // restart listening if it has been quiet this long
 const MAX_TRACKED = 6;
 const SLOT_MS = 2500;         // how long each device gets when taking turns
+const STARVE_MS = 8000;       // a device this quiet while another is heard is being starved
 const SCAN_GRACE_MS = 6000;   // give the continuous scan this long to report anything
 const SAVE_KEY = 'ble-inspector.tracked';
+const MODE_KEY = 'ble-inspector.mode';
 
 const tracked = new Map();    // device id -> tracker
 let soundId = null;           // the tracker the beeps follow
 let audio = null;
 let beepTimer = null;
 let proxTimer = null;
-let scanMode = null;          // 'starting', 'scan' (one scan for all), or 'rotate' (devices take turns)
+let scanMode = null;          // 'starting', 'scan' (one scan for all), or 'together' (each device, restarted together)
 let scanHandle = null;
 let scanStartedAt = 0;
 let scanHeard = 0;            // scan events received, for any device
-let turnAt = 0;
+let turnAt = 0;            // when listeners were last restarted
 let turnIndex = 0;
+let modeChoice = 'auto';
+let autoRotated = false;   // Automatic already switched to taking turns
 
 function proxSupported() {
   return typeof BluetoothDevice !== 'undefined' && 'watchAdvertisements' in BluetoothDevice.prototype;
@@ -600,9 +625,8 @@ async function trackDevice(device) {
   }
   const t = addTracker(device);
   await startScanning();
-  // With one device the browser can listen to it directly. With several,
-  // the turn-taking in tick() decides who is listened to.
-  if (scanMode === 'rotate' && tracked.size === 1 && !(await listen(t))) {
+  const direct = scanMode === 'together' || (scanMode === 'rotate' && tracked.size === 1);
+  if (direct && !(await listen(t))) {
     removeTracker(t.id);
     return;
   }
@@ -697,22 +721,44 @@ function onAdvertisement(t, event) {
 }
 
 function tick() {
-  if (scanMode === 'scan' && scanHeard === 0 && Date.now() - scanStartedAt > SCAN_GRACE_MS) {
-    log('The continuous scan reported nothing. Taking turns per device instead.');
+  if (modeChoice === 'auto' && scanMode === 'scan' && scanHeard === 0 && Date.now() - scanStartedAt > SCAN_GRACE_MS) {
+    log('The continuous scan reported nothing. Listening to each device instead.');
     stopScanning();
-    scanMode = 'rotate';
+    scanMode = 'together';
+    turnAt = Date.now();
+    for (const t of tracked.values()) listen(t);
   }
-  if (scanMode === 'rotate') takeTurns();
+  if (modeChoice === 'auto' && scanMode === 'together' && tracked.size > 1 && !autoRotated) {
+    // Some phones listen to one device at a time. If one device keeps going quiet
+    // while another is heard, let them take turns instead.
+    const now = Date.now();
+    const list = [...tracked.values()];
+    const starved = list.some(t => now - Math.max(t.lastHeard, t.startedAt) > STARVE_MS);
+    const heard = list.some(t => t.readings > 0 && now - t.lastHeard < 4000);
+    if (starved && heard) {
+      autoRotated = true;
+      scanMode = 'rotate';
+      log('One device keeps going quiet while another is heard. Letting devices take turns.');
+    }
+  }
+  if (scanMode === 'together') restartTogether();
+  else if (scanMode === 'rotate') takeTurns();
   for (const t of tracked.values()) renderTracker(t);
 }
 
-// Preferred: one scan that hears every tracked device at once. Phones that
-// cannot do that listen to one device at a time, so the devices take turns.
+// Preferred: one scan that hears every tracked device at once. Otherwise each
+// device is listened to separately, and they are all restarted together so that
+// restarting one never cuts off another.
 async function startScanning() {
   if (scanMode) return;
   scanMode = 'starting';
+  if (modeChoice === 'together' || modeChoice === 'rotate') {
+    scanMode = modeChoice;
+    return;
+  }
   if (!navigator.bluetooth.requestLEScan) {
-    scanMode = 'rotate';
+    if (modeChoice === 'scan') log('This browser has no continuous scan. Listening to each device instead.');
+    scanMode = 'together';
     return;
   }
   try {
@@ -723,12 +769,13 @@ async function startScanning() {
     scanHeard = 0;
     log('Scanning for all tracked devices at once.');
   } catch (e) {
-    log(`Continuous scan not available (${describeError(e)}). Taking turns per device instead.`);
-    scanMode = 'rotate';
+    log(`Continuous scan not available (${describeError(e)}). Listening to each device instead.`);
+    scanMode = 'together';
   }
 }
 
 function stopScanning() {
+  autoRotated = false;
   if (scanMode === 'scan') {
     navigator.bluetooth.removeEventListener('advertisementreceived', onScanEvent);
     try { if (scanHandle && scanHandle.stop) scanHandle.stop(); } catch (_) { /* already stopped */ }
@@ -743,6 +790,7 @@ function onScanEvent(event) {
   if (t) onAdvertisement(t, event);
 }
 
+// For phones that listen to one device at a time: give each device a short turn.
 function takeTurns() {
   const list = [...tracked.values()];
   if (list.length === 1) {
@@ -772,6 +820,56 @@ function lostAfter() {
     : LOST_AFTER_MS;
 }
 
+// Switch listening method while devices are being tracked.
+async function applyMode() {
+  stopScanning();
+  for (const t of tracked.values()) {
+    if (t.abort) {
+      t.abort.abort();
+      t.abort = null;
+    }
+  }
+  turnAt = 0;
+  if (!tracked.size) return;
+  await startScanning();
+  if (scanMode === 'together') for (const t of tracked.values()) listen(t);
+  else if (scanMode === 'rotate' && tracked.size === 1) listen([...tracked.values()][0]);
+  log(`Listening mode: ${$('prox-mode').selectedOptions[0].textContent}`);
+}
+
+function loadMode() {
+  try {
+    const saved = localStorage.getItem(MODE_KEY);
+    if (['auto', 'scan', 'together', 'rotate'].includes(saved)) modeChoice = saved;
+  } catch (_) { /* storage unavailable */ }
+  $('prox-mode').value = modeChoice;
+}
+
+// Restart every device's listening at once when any of them has gone quiet.
+// Restarting prompts some phones to report each device again.
+function restartTogether() {
+  const list = [...tracked.values()];
+  const now = Date.now();
+  if (!list.length || now - turnAt < REARM_AFTER_MS) return;
+  const quiet = list.some(t => now - Math.max(t.lastHeard, t.startedAt) >= REARM_AFTER_MS);
+  if (!quiet) return;
+  // Leave alone any device whose listening is still starting.
+  const ready = list.filter(t => !t.arming);
+  if (!ready.length) return;
+  turnAt = now;
+  for (const t of ready) {
+    if (t.abort) {
+      t.abort.abort();
+      t.abort = null;
+    }
+  }
+  for (const t of ready) {
+    t.restarts += 1;
+    t.lastRearm = now;
+    listen(t);
+  }
+}
+
 function renderTracker(t) {
   const ui = t.ui;
   const heard = t.smooth !== null;
@@ -795,7 +893,7 @@ function renderTracker(t) {
   const readings = `${t.readings} reading${t.readings === 1 ? '' : 's'}`;
   ui.stats.textContent = scanMode === 'scan'
     ? `${readings}, continuous scan`
-    : `${readings}, ${tracked.size > 1 ? 'taking turns' : 'listening'} restarted ${t.restarts} time${t.restarts === 1 ? '' : 's'}`;
+    : `${readings}, ${scanMode === 'rotate' && tracked.size > 1 ? 'taking turns' : 'listening'} restarted ${t.restarts} time${t.restarts === 1 ? '' : 's'}`;
   ui.status.classList.toggle('connected', heard && !lost);
   ui.fill.style.width = (heard && !lost ? signalLevel(t.smooth) * 100 : 0) + '%';
   ui.sound.textContent = 'Sound: ' + (soundId === t.id ? 'on' : 'off');
@@ -917,9 +1015,15 @@ $('read-all').addEventListener('click', readAll);
 $('tab-inspect').addEventListener('click', () => showTab('inspect'));
 $('tab-prox').addEventListener('click', () => showTab('prox'));
 $('prox-choose').addEventListener('click', chooseProxDevice);
-const VERSION = '7 (shared scan for several devices)';
+$('prox-mode').addEventListener('change', event => {
+  modeChoice = event.target.value;
+  try { localStorage.setItem(MODE_KEY, modeChoice); } catch (_) { /* storage unavailable */ }
+  applyMode();
+});
+const VERSION = '8 (listening modes)';
 $('version').textContent = 'Version ' + VERSION + '.';
 log('BLE Inspector version ' + VERSION);
+loadMode();
 checkSupport();
 offerResume();
 </script>
