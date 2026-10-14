@@ -125,16 +125,50 @@
     overflow-wrap: anywhere;
   }
   footer { color: var(--muted); font-size: 0.85rem; margin-top: 28px; }
+
+  .tabs { display: flex; gap: 6px; margin: 0 0 16px; border-bottom: 1px solid var(--line); }
+  .tabs button {
+    border: 0;
+    border-bottom: 3px solid transparent;
+    border-radius: 0;
+    background: none;
+    padding: 10px 14px;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+  .big { font-size: 2rem; font-weight: 700; line-height: 1.15; margin-top: 6px; }
+  .reading { font: 0.95rem ui-monospace, Menlo, Consolas, monospace; color: var(--muted); }
+  .gauge {
+    height: 14px;
+    border-radius: 999px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    overflow: hidden;
+    margin: 14px 0 4px;
+  }
+  .gauge > div { height: 100%; width: 0; background: var(--accent); border-radius: 999px; transition: width 0.3s; }
+  .gauge-scale { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--muted); }
+  #spark { width: 100%; height: 80px; margin-top: 14px; display: block; }
+  #spark line { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  #spark polyline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+  .prox-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 </style>
 </head>
 <body>
 <main>
   <h1>BLE Inspector</h1>
-  <p class="sub">Look inside a Bluetooth Low Energy device you own: its services, what each one can do, and the values it reports.</p>
+  <p class="sub">Look inside a Bluetooth Low Energy device you own, or watch how close it is.</p>
 
   <div id="unsupported" class="notice" hidden></div>
 
   <section id="app">
+    <div class="tabs" role="tablist" aria-label="Tools">
+      <button id="tab-inspect" role="tab" aria-selected="true" aria-controls="panel-inspect">Inspect</button>
+      <button id="tab-prox" role="tab" aria-selected="false" aria-controls="panel-prox">Proximity</button>
+    </div>
+
+    <div id="panel-inspect" role="tabpanel" aria-labelledby="tab-inspect">
     <button id="choose" class="primary">Choose a device</button>
     <p class="hint">Your browser shows a list of nearby devices. Pick one of your own. Nothing is sent anywhere: this page talks to the device directly, and reads only.</p>
 
@@ -158,6 +192,33 @@
     </div>
 
     <div id="services"></div>
+    </div>
+
+    <div id="panel-prox" role="tabpanel" aria-labelledby="tab-prox" hidden>
+      <div id="prox-unsupported" class="notice" hidden></div>
+      <button id="prox-choose" class="primary">Choose a device to track</button>
+      <p class="hint">Pick one of your own devices. The page listens for its Bluetooth broadcasts and shows how strong the signal is. A stronger signal usually means the device is closer. Nothing is sent anywhere.</p>
+
+      <div id="prox-card" class="card" hidden>
+        <div class="name" id="prox-name"></div>
+        <div class="status" id="prox-status"></div>
+        <div class="big" id="prox-label">Listening…</div>
+        <div class="reading" id="prox-reading"></div>
+        <div class="gauge" aria-hidden="true"><div id="gauge-fill"></div></div>
+        <div class="gauge-scale" aria-hidden="true"><span>Far</span><span>Close</span></div>
+        <svg id="spark" viewBox="0 0 300 80" preserveAspectRatio="none" role="img" aria-label="Signal strength over the last readings">
+          <line x1="0" y1="26.7" x2="300" y2="26.7"></line>
+          <line x1="0" y1="53.3" x2="300" y2="53.3"></line>
+          <polyline id="spark-line" points=""></polyline>
+        </svg>
+        <div class="prox-actions">
+          <button id="prox-calibrate" class="small">Device is 1 m away</button>
+          <button id="prox-sound" class="small">Sound: off</button>
+          <button id="prox-stop" class="small">Stop</button>
+        </div>
+        <p class="hint" id="prox-hint">Treat this as hot and cold, not a ruler. Walls, bags, and bodies change the signal. For a better distance guess, hold the device about 1 m away and tap "Device is 1 m away".</p>
+      </div>
+    </div>
 
     <h2>Log</h2>
     <pre id="log" aria-live="polite"></pre>
@@ -455,6 +516,180 @@ async function readAll() {
   for (const btn of document.querySelectorAll('button[data-read]')) await btn._run();
 }
 
+// ---------- Proximity ----------
+const HISTORY = 60;          // readings kept for the graph
+const LOST_AFTER_MS = 10000; // no broadcast for this long means out of range
+const prox = {
+  device: null, abort: null, timer: null, beepTimer: null, audio: null,
+  smooth: null,  // smoothed signal strength in dBm
+  lastHeard: 0, history: [], ref: -59, sound: false,
+};
+
+function proxSupported() {
+  return typeof BluetoothDevice !== 'undefined' && 'watchAdvertisements' in BluetoothDevice.prototype;
+}
+
+// -100 dBm maps to 0 and -30 dBm maps to 1.
+const signalLevel = rssi => Math.min(1, Math.max(0, (rssi + 100) / 70));
+
+function signalLabel(rssi) {
+  if (rssi >= -50) return 'Right here';
+  if (rssi >= -62) return 'Very close';
+  if (rssi >= -74) return 'Nearby';
+  if (rssi >= -86) return 'Far';
+  return 'Barely detected';
+}
+
+// Log-distance estimate. prox.ref is the signal at 1 m. Rough at best.
+function roughDistance(rssi) {
+  const meters = Math.pow(10, (prox.ref - rssi) / 25);
+  return meters < 10 ? meters.toFixed(1) : String(Math.round(meters));
+}
+
+async function chooseProxDevice() {
+  try {
+    const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true });
+    await startTracking(device);
+  } catch (e) {
+    log(describeError(e));
+  }
+}
+
+async function startTracking(device) {
+  stopTracking();
+  prox.device = device;
+  prox.abort = new AbortController();
+  device.addEventListener('advertisementreceived', onAdvertisement);
+  $('prox-card').hidden = false;
+  $('prox-name').textContent = device.name || '(unnamed device)';
+  prox.timer = setInterval(renderProximity, 1000);
+  renderProximity();
+  try {
+    await device.watchAdvertisements({ signal: prox.abort.signal });
+    log(`Listening to ${device.name || device.id}`);
+  } catch (e) {
+    log(`Could not listen: ${describeError(e)}`);
+    stopTracking();
+  }
+}
+
+function onAdvertisement(event) {
+  if (typeof event.rssi !== 'number') return;
+  prox.smooth = prox.smooth === null ? event.rssi : prox.smooth + 0.3 * (event.rssi - prox.smooth);
+  prox.lastHeard = Date.now();
+  prox.history.push(prox.smooth);
+  if (prox.history.length > HISTORY) prox.history.shift();
+  renderProximity();
+}
+
+function stopTracking() {
+  if (prox.device) {
+    prox.device.removeEventListener('advertisementreceived', onAdvertisement);
+    try { if (prox.device.unwatchAdvertisements) prox.device.unwatchAdvertisements(); } catch (_) { /* older API */ }
+  }
+  if (prox.abort) prox.abort.abort();
+  if (prox.timer) clearInterval(prox.timer);
+  setSound(false);
+  Object.assign(prox, { device: null, abort: null, timer: null, smooth: null, lastHeard: 0, history: [] });
+  $('prox-card').hidden = true;
+}
+
+function renderProximity() {
+  if (!prox.device) return;
+  const heard = prox.smooth !== null;
+  const age = heard ? Date.now() - prox.lastHeard : 0;
+  const lost = heard && age > LOST_AFTER_MS;
+  const secs = Math.max(0, Math.round(age / 1000));
+
+  if (!heard) {
+    $('prox-label').textContent = 'Listening…';
+    $('prox-reading').textContent = 'Waiting for the device to broadcast. Make sure it is on and awake.';
+    $('prox-status').textContent = 'No signal heard yet';
+  } else if (lost) {
+    $('prox-label').textContent = 'Out of range';
+    $('prox-reading').textContent = `Last signal ${Math.round(prox.smooth)} dBm, ${secs} s ago`;
+    $('prox-status').textContent = `Not heard for ${secs} s`;
+  } else {
+    $('prox-label').textContent = signalLabel(prox.smooth);
+    $('prox-reading').textContent = `${Math.round(prox.smooth)} dBm, about ${roughDistance(prox.smooth)} m (rough estimate)`;
+    $('prox-status').textContent = `Last heard ${secs} s ago`;
+  }
+  $('prox-status').classList.toggle('connected', heard && !lost);
+  $('gauge-fill').style.width = (heard && !lost ? signalLevel(prox.smooth) * 100 : 0) + '%';
+  drawSparkline();
+}
+
+function drawSparkline() {
+  const n = prox.history.length;
+  const step = 300 / (HISTORY - 1);
+  const points = prox.history.map((r, i) =>
+    `${(300 - (n - 1 - i) * step).toFixed(1)},${(78 - signalLevel(r) * 76).toFixed(1)}`);
+  $('spark-line').setAttribute('points', points.join(' '));
+}
+
+function calibrate() {
+  if (prox.smooth === null) {
+    log('Nothing heard yet. Wait for a reading, then tap again.');
+    return;
+  }
+  prox.ref = Math.round(prox.smooth);
+  log(`Calibrated: ${prox.ref} dBm now counts as 1 m.`);
+  renderProximity();
+}
+
+// Beeps faster and higher as the signal gets stronger.
+function setSound(on) {
+  clearTimeout(prox.beepTimer);
+  prox.sound = on;
+  if (on) {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      prox.audio = prox.audio || new Ctx();
+      prox.audio.resume();
+    } catch (_) {
+      log('Sound is not available in this browser.');
+      prox.sound = false;
+    }
+  }
+  $('prox-sound').textContent = 'Sound: ' + (prox.sound ? 'on' : 'off');
+  $('prox-sound').classList.toggle('on', prox.sound);
+  if (prox.sound) beepLoop();
+}
+
+function beepLoop() {
+  if (!prox.sound) return;
+  let wait = 600;
+  if (prox.smooth !== null && Date.now() - prox.lastHeard <= LOST_AFTER_MS) {
+    const level = signalLevel(prox.smooth);
+    beep(500 + level * 700);
+    wait = 1200 - level * 1000;
+  }
+  prox.beepTimer = setTimeout(beepLoop, wait);
+}
+
+function beep(freq) {
+  const ctx = prox.audio;
+  const t = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(0.2, t + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+  osc.connect(gain).connect(ctx.destination);
+  osc.start(t);
+  osc.stop(t + 0.14);
+}
+
+// ---------- Tabs ----------
+function showTab(name) {
+  for (const id of ['inspect', 'prox']) {
+    const on = id === name;
+    $('tab-' + id).setAttribute('aria-selected', String(on));
+    $('panel-' + id).hidden = !on;
+  }
+}
+
 // ---------- Start-up ----------
 function checkSupport() {
   const box = $('unsupported');
@@ -470,13 +705,24 @@ function checkSupport() {
     box.textContent = message;
     box.hidden = false;
     $('choose').disabled = true;
+    $('prox-choose').disabled = true;
+  } else if (!proxSupported()) {
+    $('prox-unsupported').textContent = 'This browser cannot report signal strength to web pages, so the Proximity tab will not work here. On iPhone, try Bluefy.';
+    $('prox-unsupported').hidden = false;
+    $('prox-choose').disabled = true;
   }
 }
 
 $('choose').addEventListener('click', chooseDevice);
 $('disconnect').addEventListener('click', disconnect);
 $('read-all').addEventListener('click', readAll);
-const VERSION = '3 (recognizes short UUIDs)';
+$('tab-inspect').addEventListener('click', () => showTab('inspect'));
+$('tab-prox').addEventListener('click', () => showTab('prox'));
+$('prox-choose').addEventListener('click', chooseProxDevice);
+$('prox-calibrate').addEventListener('click', calibrate);
+$('prox-sound').addEventListener('click', () => setSound(!prox.sound));
+$('prox-stop').addEventListener('click', stopTracking);
+const VERSION = '4 (adds Proximity tab)';
 $('version').textContent = 'Version ' + VERSION + '.';
 log('BLE Inspector version ' + VERSION);
 checkSupport();
