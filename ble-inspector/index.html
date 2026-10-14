@@ -149,9 +149,11 @@
   }
   .gauge > div { height: 100%; width: 0; background: var(--accent); border-radius: 999px; transition: width 0.3s; }
   .gauge-scale { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--muted); }
-  #spark { width: 100%; height: 80px; margin-top: 14px; display: block; }
-  #spark line { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
-  #spark polyline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+  .spark { width: 100%; height: 80px; margin-top: 14px; display: block; }
+  .spark line { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .spark polyline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+  #prox-list { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+  #prox-resume { margin-top: 12px; }
   .prox-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 </style>
 </head>
@@ -196,29 +198,36 @@
 
     <div id="panel-prox" role="tabpanel" aria-labelledby="tab-prox" hidden>
       <div id="prox-unsupported" class="notice" hidden></div>
-      <button id="prox-choose" class="primary">Choose a device to track</button>
-      <p class="hint">Pick one of your own devices. The page listens for its Bluetooth broadcasts and shows how strong the signal is. A stronger signal usually means the device is closer. Nothing is sent anywhere.</p>
+      <button id="prox-choose" class="primary">Add a device to track</button>
+      <p class="hint">Pick one of your own devices. The page listens for its Bluetooth broadcasts and shows how strong the signal is. A stronger signal usually means the device is closer. You can add several devices, and each gets its own card. Calibration is remembered on this phone. Nothing is sent anywhere.</p>
+      <button id="prox-resume" class="small" hidden></button>
 
-      <div id="prox-card" class="card" hidden>
-        <div class="name" id="prox-name"></div>
-        <div class="status" id="prox-status"></div>
-        <div class="big" id="prox-label">Listening…</div>
-        <div class="reading" id="prox-reading"></div>
-        <div class="hint" id="prox-stats"></div>
-        <div class="gauge" aria-hidden="true"><div id="gauge-fill"></div></div>
-        <div class="gauge-scale" aria-hidden="true"><span>Far</span><span>Close</span></div>
-        <svg id="spark" viewBox="0 0 300 80" preserveAspectRatio="none" role="img" aria-label="Signal strength over the last readings">
-          <line x1="0" y1="26.7" x2="300" y2="26.7"></line>
-          <line x1="0" y1="53.3" x2="300" y2="53.3"></line>
-          <polyline id="spark-line" points=""></polyline>
-        </svg>
-        <div class="prox-actions">
-          <button id="prox-calibrate" class="small">Device is 1 m away</button>
-          <button id="prox-sound" class="small">Sound: off</button>
-          <button id="prox-stop" class="small">Stop</button>
+      <div id="prox-list"></div>
+      <p class="hint" id="prox-hint">Treat this as hot and cold, not a ruler. Walls, bags, and bodies change the signal. For a better distance guess, hold a device about 1 m away and tap "Device is 1 m away" on its card. Sound follows one device at a time.</p>
+
+      <template id="tracker-template">
+        <div class="card">
+          <div class="row">
+            <div class="name grow" data-f="name"></div>
+            <button class="small" data-f="remove">Remove</button>
+          </div>
+          <div class="status" data-f="status"></div>
+          <div class="big" data-f="label">Listening…</div>
+          <div class="reading" data-f="reading"></div>
+          <div class="hint" data-f="stats"></div>
+          <div class="gauge" aria-hidden="true"><div data-f="fill"></div></div>
+          <div class="gauge-scale" aria-hidden="true"><span>Far</span><span>Close</span></div>
+          <svg class="spark" viewBox="0 0 300 80" preserveAspectRatio="none" role="img" aria-label="Signal strength over the last readings">
+            <line x1="0" y1="26.7" x2="300" y2="26.7"></line>
+            <line x1="0" y1="53.3" x2="300" y2="53.3"></line>
+            <polyline data-f="line" points=""></polyline>
+          </svg>
+          <div class="prox-actions">
+            <button class="small" data-f="calibrate">Device is 1 m away</button>
+            <button class="small" data-f="sound">Sound: off</button>
+          </div>
         </div>
-        <p class="hint" id="prox-hint">Treat this as hot and cold, not a ruler. Walls, bags, and bodies change the signal. For a better distance guess, hold the device about 1 m away and tap "Device is 1 m away".</p>
-      </div>
+      </template>
     </div>
 
     <h2>Log</h2>
@@ -518,16 +527,17 @@ async function readAll() {
 }
 
 // ---------- Proximity ----------
-const HISTORY = 60;          // readings kept for the graph
+const HISTORY = 60;           // readings kept for each graph
 const LOST_AFTER_MS = 20000;  // no broadcast for this long means out of range
 const REARM_AFTER_MS = 3000;  // restart listening if it has been quiet this long
-const prox = {
-  device: null, abort: null, timer: null, beepTimer: null, audio: null,
-  smooth: null,  // smoothed signal strength in dBm
-  lastHeard: 0, startedAt: 0, lastRearm: 0, arming: false,
-  readings: 0, restarts: 0,
-  history: [], ref: -59, sound: false,
-};
+const MAX_TRACKED = 6;
+const SAVE_KEY = 'ble-inspector.tracked';
+
+const tracked = new Map();    // device id -> tracker
+let soundId = null;           // the tracker the beeps follow
+let audio = null;
+let beepTimer = null;
+let proxTimer = null;
 
 function proxSupported() {
   return typeof BluetoothDevice !== 'undefined' && 'watchAdvertisements' in BluetoothDevice.prototype;
@@ -544,172 +554,242 @@ function signalLabel(rssi) {
   return 'Barely detected';
 }
 
-// Log-distance estimate. prox.ref is the signal at 1 m. Rough at best.
-function roughDistance(rssi) {
-  const meters = Math.pow(10, (prox.ref - rssi) / 25);
+// Log-distance estimate. t.ref is the signal at 1 m. Rough at best.
+function roughDistance(t, rssi) {
+  const meters = Math.pow(10, (t.ref - rssi) / 25);
   return meters < 10 ? meters.toFixed(1) : String(Math.round(meters));
+}
+
+// Names and calibration are remembered in this browser only.
+function loadSaved() {
+  try { return JSON.parse(localStorage.getItem(SAVE_KEY)) || {}; } catch (_) { return {}; }
+}
+
+function persist() {
+  const data = loadSaved();
+  for (const id of Object.keys(data)) data[id].tracking = false;
+  for (const t of tracked.values()) data[t.id] = { name: t.baseName, ref: t.ref, tracking: true };
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (_) { /* storage unavailable */ }
 }
 
 async function chooseProxDevice() {
   try {
     const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true });
-    await startTracking(device);
+    await trackDevice(device);
   } catch (e) {
     log(describeError(e));
   }
 }
 
-async function startTracking(device) {
-  stopTracking();
-  prox.device = device;
-  prox.startedAt = prox.lastRearm = Date.now();
-  device.addEventListener('advertisementreceived', onAdvertisement);
-  $('prox-card').hidden = false;
-  $('prox-name').textContent = device.name || '(unnamed device)';
-  prox.timer = setInterval(() => { maybeRestart(); renderProximity(); }, 1000);
-  renderProximity();
-  if (await listen()) log(`Listening to ${device.name || device.id}`);
-  else stopTracking();
+async function trackDevice(device) {
+  if (tracked.has(device.id)) {
+    log('Already tracking that device.');
+    return;
+  }
+  if (tracked.size >= MAX_TRACKED) {
+    log(`You can track up to ${MAX_TRACKED} devices at once. Remove one first.`);
+    return;
+  }
+  const t = addTracker(device);
+  if (await listen(t)) log(`Listening to ${t.name}`);
+  else removeTracker(t.id);
 }
 
-// Start (or restart) listening for the device's broadcasts. Some phones only
+function addTracker(device) {
+  const saved = loadSaved()[device.id] || {};
+  const base = device.name || saved.name || 'Unnamed device';
+  const t = {
+    id: device.id, device, baseName: base,
+    name: device.name ? base : `${base} (${String(device.id).slice(-4)})`,
+    ref: typeof saved.ref === 'number' ? saved.ref : -59,
+    abort: null, arming: false,
+    smooth: null, lastHeard: 0, startedAt: Date.now(), lastRearm: Date.now(),
+    readings: 0, restarts: 0, history: [], ui: null,
+  };
+  t.onAdvertisement = event => onAdvertisement(t, event);
+  device.addEventListener('advertisementreceived', t.onAdvertisement);
+  t.ui = buildCard(t);
+  $('prox-list').append(t.ui.root);
+  tracked.set(t.id, t);
+  persist();
+  if (!proxTimer) proxTimer = setInterval(tick, 1000);
+  renderTracker(t);
+  return t;
+}
+
+function buildCard(t) {
+  const root = $('tracker-template').content.firstElementChild.cloneNode(true);
+  const ui = { root };
+  for (const node of root.querySelectorAll('[data-f]')) ui[node.dataset.f] = node;
+  ui.name.textContent = t.name;
+  ui.remove.addEventListener('click', () => removeTracker(t.id));
+  ui.calibrate.addEventListener('click', () => calibrate(t));
+  ui.sound.addEventListener('click', () => setSound(soundId === t.id ? null : t.id));
+  return ui;
+}
+
+function removeTracker(id) {
+  const t = tracked.get(id);
+  if (!t) return;
+  t.device.removeEventListener('advertisementreceived', t.onAdvertisement);
+  try { if (t.device.unwatchAdvertisements) t.device.unwatchAdvertisements(); } catch (_) { /* older API */ }
+  if (t.abort) t.abort.abort();
+  if (soundId === id) setSound(null);
+  t.ui.root.remove();
+  tracked.delete(id);
+  persist();
+  if (!tracked.size && proxTimer) {
+    clearInterval(proxTimer);
+    proxTimer = null;
+  }
+}
+
+// Start (or restart) listening for a device's broadcasts. Some phones only
 // report a device when listening starts, so restarting gives fresh readings.
-async function listen() {
-  if (!prox.device || prox.arming) return true;
-  prox.arming = true;
+async function listen(t) {
+  if (!tracked.has(t.id) || t.arming) return true;
+  t.arming = true;
   try {
-    if (prox.abort) prox.abort.abort();
-    prox.abort = new AbortController();
-    await prox.device.watchAdvertisements({ signal: prox.abort.signal });
+    if (t.abort) t.abort.abort();
+    t.abort = new AbortController();
+    await t.device.watchAdvertisements({ signal: t.abort.signal });
     return true;
   } catch (e) {
-    log(`Could not listen: ${describeError(e)}`);
+    log(`Could not listen to ${t.name}: ${describeError(e)}`);
     return false;
   } finally {
-    prox.arming = false;
+    t.arming = false;
   }
 }
 
-function maybeRestart() {
+function maybeRestart(t) {
   const now = Date.now();
-  const quietSince = Math.max(prox.lastHeard, prox.startedAt, prox.lastRearm);
+  const quietSince = Math.max(t.lastHeard, t.startedAt, t.lastRearm);
   if (now - quietSince < REARM_AFTER_MS) return;
-  prox.lastRearm = now;
-  prox.restarts += 1;
-  listen();
+  t.lastRearm = now;
+  t.restarts += 1;
+  listen(t);
 }
 
-function onAdvertisement(event) {
+function onAdvertisement(t, event) {
   if (typeof event.rssi !== 'number') return;
-  prox.readings += 1;
-  prox.smooth = prox.smooth === null ? event.rssi : prox.smooth + 0.3 * (event.rssi - prox.smooth);
-  prox.lastHeard = Date.now();
-  prox.history.push(prox.smooth);
-  if (prox.history.length > HISTORY) prox.history.shift();
-  renderProximity();
+  t.readings += 1;
+  t.smooth = t.smooth === null ? event.rssi : t.smooth + 0.3 * (event.rssi - t.smooth);
+  t.lastHeard = Date.now();
+  t.history.push(t.smooth);
+  if (t.history.length > HISTORY) t.history.shift();
+  renderTracker(t);
 }
 
-function stopTracking() {
-  if (prox.device) {
-    prox.device.removeEventListener('advertisementreceived', onAdvertisement);
-    try { if (prox.device.unwatchAdvertisements) prox.device.unwatchAdvertisements(); } catch (_) { /* older API */ }
+function tick() {
+  for (const t of tracked.values()) {
+    maybeRestart(t);
+    renderTracker(t);
   }
-  if (prox.abort) prox.abort.abort();
-  if (prox.timer) clearInterval(prox.timer);
-  setSound(false);
-  Object.assign(prox, {
-    device: null, abort: null, timer: null, smooth: null, lastHeard: 0,
-    arming: false, readings: 0, restarts: 0, history: [],
-  });
-  $('prox-card').hidden = true;
 }
 
-function renderProximity() {
-  if (!prox.device) return;
-  const heard = prox.smooth !== null;
-  const age = heard ? Date.now() - prox.lastHeard : 0;
+function renderTracker(t) {
+  const ui = t.ui;
+  const heard = t.smooth !== null;
+  const age = heard ? Date.now() - t.lastHeard : 0;
   const lost = heard && age > LOST_AFTER_MS;
   const secs = Math.max(0, Math.round(age / 1000));
 
   if (!heard) {
-    $('prox-label').textContent = 'Listening…';
-    $('prox-reading').textContent = 'Waiting for the device to broadcast. Make sure it is on and awake.';
-    $('prox-status').textContent = 'No signal heard yet';
+    ui.label.textContent = 'Listening…';
+    ui.reading.textContent = 'Waiting for the device to broadcast. Make sure it is on and awake.';
+    ui.status.textContent = 'No signal heard yet';
   } else if (lost) {
-    $('prox-label').textContent = 'Out of range';
-    $('prox-reading').textContent = `Last signal ${Math.round(prox.smooth)} dBm, ${secs} s ago`;
-    $('prox-status').textContent = `Not heard for ${secs} s. Move closer or wake the device.`;
+    ui.label.textContent = 'Out of range';
+    ui.reading.textContent = `Last signal ${Math.round(t.smooth)} dBm, ${secs} s ago`;
+    ui.status.textContent = `Not heard for ${secs} s. Move closer or wake the device.`;
   } else {
-    $('prox-label').textContent = signalLabel(prox.smooth);
-    $('prox-reading').textContent = `${Math.round(prox.smooth)} dBm, about ${roughDistance(prox.smooth)} m (rough estimate)`;
-    $('prox-status').textContent = `Last heard ${secs} s ago`;
+    ui.label.textContent = signalLabel(t.smooth);
+    ui.reading.textContent = `${Math.round(t.smooth)} dBm, about ${roughDistance(t, t.smooth)} m (rough estimate)`;
+    ui.status.textContent = `Last heard ${secs} s ago`;
   }
-  $('prox-stats').textContent = `${prox.readings} readings, listening restarted ${prox.restarts} times`;
-  $('prox-status').classList.toggle('connected', heard && !lost);
-  $('gauge-fill').style.width = (heard && !lost ? signalLevel(prox.smooth) * 100 : 0) + '%';
-  drawSparkline();
-}
+  ui.stats.textContent = `${t.readings} reading${t.readings === 1 ? '' : 's'}, listening restarted ${t.restarts} time${t.restarts === 1 ? '' : 's'}`;
+  ui.status.classList.toggle('connected', heard && !lost);
+  ui.fill.style.width = (heard && !lost ? signalLevel(t.smooth) * 100 : 0) + '%';
+  ui.sound.textContent = 'Sound: ' + (soundId === t.id ? 'on' : 'off');
+  ui.sound.classList.toggle('on', soundId === t.id);
 
-function drawSparkline() {
-  const n = prox.history.length;
+  const n = t.history.length;
   const step = 300 / (HISTORY - 1);
-  const points = prox.history.map((r, i) =>
+  const points = t.history.map((r, i) =>
     `${(300 - (n - 1 - i) * step).toFixed(1)},${(78 - signalLevel(r) * 76).toFixed(1)}`);
-  $('spark-line').setAttribute('points', points.join(' '));
+  ui.line.setAttribute('points', points.join(' '));
 }
 
-function calibrate() {
-  if (prox.smooth === null) {
+function calibrate(t) {
+  if (t.smooth === null) {
     log('Nothing heard yet. Wait for a reading, then tap again.');
     return;
   }
-  prox.ref = Math.round(prox.smooth);
-  log(`Calibrated: ${prox.ref} dBm now counts as 1 m.`);
-  renderProximity();
+  t.ref = Math.round(t.smooth);
+  persist();
+  log(`${t.name}: ${t.ref} dBm now counts as 1 m.`);
+  renderTracker(t);
 }
 
-// Beeps faster and higher as the signal gets stronger.
-function setSound(on) {
-  clearTimeout(prox.beepTimer);
-  prox.sound = on;
-  if (on) {
+// Beeps faster and higher as the signal gets stronger, for one device at a time.
+function setSound(id) {
+  clearTimeout(beepTimer);
+  soundId = id;
+  if (id !== null) {
     try {
       const Ctx = window.AudioContext || window.webkitAudioContext;
-      prox.audio = prox.audio || new Ctx();
-      prox.audio.resume();
+      audio = audio || new Ctx();
+      audio.resume();
     } catch (_) {
       log('Sound is not available in this browser.');
-      prox.sound = false;
+      soundId = null;
     }
   }
-  $('prox-sound').textContent = 'Sound: ' + (prox.sound ? 'on' : 'off');
-  $('prox-sound').classList.toggle('on', prox.sound);
-  if (prox.sound) beepLoop();
+  for (const t of tracked.values()) renderTracker(t);
+  if (soundId !== null) beepLoop();
 }
 
 function beepLoop() {
-  if (!prox.sound) return;
+  const t = tracked.get(soundId);
+  if (!t) return;
   let wait = 600;
-  if (prox.smooth !== null && Date.now() - prox.lastHeard <= LOST_AFTER_MS) {
-    const level = signalLevel(prox.smooth);
+  if (t.smooth !== null && Date.now() - t.lastHeard <= LOST_AFTER_MS) {
+    const level = signalLevel(t.smooth);
     beep(500 + level * 700);
     wait = 1200 - level * 1000;
   }
-  prox.beepTimer = setTimeout(beepLoop, wait);
+  beepTimer = setTimeout(beepLoop, wait);
 }
 
 function beep(freq) {
-  const ctx = prox.audio;
-  const t = ctx.currentTime;
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
+  const t = audio.currentTime;
+  const osc = audio.createOscillator();
+  const gain = audio.createGain();
   osc.frequency.value = freq;
   gain.gain.setValueAtTime(0.0001, t);
   gain.gain.exponentialRampToValueAtTime(0.2, t + 0.01);
   gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
-  osc.connect(gain).connect(ctx.destination);
+  osc.connect(gain).connect(audio.destination);
   osc.start(t);
   osc.stop(t + 0.14);
+}
+
+// Some browsers can reuse devices you already chose. If so, offer one tap to resume.
+async function offerResume() {
+  if (!navigator.bluetooth || !navigator.bluetooth.getDevices) return;
+  try {
+    const saved = loadSaved();
+    const devices = (await navigator.bluetooth.getDevices()).filter(d => saved[d.id] && saved[d.id].tracking);
+    if (!devices.length) return;
+    const button = $('prox-resume');
+    button.textContent = `Resume tracking ${devices.length} saved device${devices.length > 1 ? 's' : ''}`;
+    button.hidden = false;
+    button.addEventListener('click', async () => {
+      button.hidden = true;
+      for (const device of devices) await trackDevice(device);
+    });
+  } catch (_) { /* not available here */ }
 }
 
 // ---------- Tabs ----------
@@ -750,13 +830,11 @@ $('read-all').addEventListener('click', readAll);
 $('tab-inspect').addEventListener('click', () => showTab('inspect'));
 $('tab-prox').addEventListener('click', () => showTab('prox'));
 $('prox-choose').addEventListener('click', chooseProxDevice);
-$('prox-calibrate').addEventListener('click', calibrate);
-$('prox-sound').addEventListener('click', () => setSound(!prox.sound));
-$('prox-stop').addEventListener('click', stopTracking);
-const VERSION = '5 (Proximity restarts listening when quiet)';
+const VERSION = '6 (track several devices)';
 $('version').textContent = 'Version ' + VERSION + '.';
 log('BLE Inspector version ' + VERSION);
 checkSupport();
+offerResume();
 </script>
 </body>
 </html>
