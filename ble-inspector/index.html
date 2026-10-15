@@ -18,6 +18,7 @@
     --accent: #0f766e;
     --accent-ink: #ffffff;
     --ok: #15803d;
+    --bad: #b42318;
     --notice-bg: #fff4d6;
     --notice-fg: #5c4400;
     --dial-track: #e1e7f0;
@@ -40,6 +41,7 @@
       --accent: #2dd4bf;
       --accent-ink: #04201c;
       --ok: #4ade80;
+      --bad: #f87171;
       --notice-bg: #3a2f10;
       --notice-fg: #f3e2a8;
       --dial-track: #1d2735;
@@ -233,6 +235,26 @@
   .prox-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
   #prox-resume { margin-top: 12px; width: 100%; }
 
+  .namebox { text-align: left; }
+  .namebox input.rename { min-height: 40px; padding: 6px 10px; margin: 0; }
+  .spotline { font-weight: 650; color: var(--accent); min-height: 0; }
+  .spotline:empty { display: none; }
+  .tracker[data-alarm="on"] { border-color: var(--bad); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 28%, transparent); }
+  .tracker[data-alarm="on"] .big { color: var(--bad); }
+  .prox-actions.three { grid-template-columns: 1fr 1fr 1fr; }
+  .rec { margin-top: 14px; text-align: left; }
+  .rec svg { width: 100%; display: block; background: var(--surface-2); border-radius: 12px; }
+  .rec-grid line { stroke: var(--line); stroke-width: 0.6; }
+  .rec-axis text { fill: var(--muted); font-size: 8px; }
+  .rec polyline { fill: none; stroke: var(--signal); stroke-width: 1.6; stroke-linejoin: round; }
+  .rec .hint { text-align: left; }
+  details.sub { margin-top: 12px; background: var(--surface-2); text-align: left; }
+  details.sub .hint { margin-top: 0; text-align: left; }
+  pre.adv { margin: 0; font: 0.78rem/1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .spotadd { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin: 10px 0; }
+  .spotadd input { margin: 0; }
+  .spot { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+
   /* ---- Log and footer ---- */
   #log {
     margin: 0;
@@ -324,7 +346,11 @@
       <template id="tracker-template">
         <div class="card tracker" data-state="searching">
           <div class="row">
-            <div class="name grow" data-f="name"></div>
+            <div class="grow namebox" data-f="nameBox">
+              <div class="name" data-f="name"></div>
+              <div class="uuid" data-f="realname" hidden></div>
+            </div>
+            <button class="small" data-f="rename">Rename</button>
             <button class="small" data-f="remove">Remove</button>
           </div>
           <div class="status" data-f="status"></div>
@@ -340,6 +366,7 @@
           </div>
           <div class="big" data-f="label">Listening…</div>
           <div class="reading" data-f="reading"></div>
+          <div class="spotline" data-f="spotLine"></div>
           <svg class="spark" viewBox="0 0 300 80" preserveAspectRatio="none" role="img" aria-label="Signal strength over the last readings">
             <line x1="0" y1="26.7" x2="300" y2="26.7"></line>
             <line x1="0" y1="53.3" x2="300" y2="53.3"></line>
@@ -351,6 +378,44 @@
             <button class="small" data-f="calibrate">Calibrate at 1 m</button>
             <button class="small" data-f="sound">Sound: off</button>
           </div>
+          <div class="prox-actions">
+            <button class="small" data-f="alarm">Alert: off</button>
+            <button class="small" data-f="record">Record</button>
+          </div>
+          <div class="rec" data-f="rec" hidden>
+            <svg viewBox="0 0 300 108" role="img" aria-label="Recorded signal strength over time">
+              <g class="rec-grid">
+                <line x1="30" y1="19.4" x2="294" y2="19.4"></line><line x1="30" y1="42.3" x2="294" y2="42.3"></line>
+                <line x1="30" y1="65.1" x2="294" y2="65.1"></line><line x1="30" y1="88" x2="294" y2="88"></line>
+              </g>
+              <g class="rec-axis">
+                <text x="26" y="22" text-anchor="end">-40</text><text x="26" y="45" text-anchor="end">-60</text>
+                <text x="26" y="68" text-anchor="end">-80</text><text x="26" y="91" text-anchor="end">-100</text>
+                <text x="30" y="103">0 s</text><text x="294" y="103" text-anchor="end" data-f="recEnd"></text>
+              </g>
+              <polyline data-f="recLine" points=""></polyline>
+            </svg>
+            <div class="hint" data-f="recStats"></div>
+            <div class="prox-actions three">
+              <button class="small" data-f="recSave">Save file</button>
+              <button class="small" data-f="recCopy">Copy CSV</button>
+              <button class="small" data-f="recClear">Clear</button>
+            </div>
+          </div>
+          <details class="sub" data-f="broadcast">
+            <summary>What it broadcasts</summary>
+            <pre class="adv" data-f="adv"></pre>
+          </details>
+          <details class="sub">
+            <summary>Spots</summary>
+            <p class="hint">Keep your phone in one place and put the device in each spot, or keep the device still and walk around with the phone. Save the signal for each spot. Later the card guesses which one it matches.</p>
+            <div class="spotadd">
+              <input type="text" data-f="spotName" placeholder="e.g. Kitchen" maxlength="40" autocomplete="off">
+              <button class="small" data-f="spotSave">Save signal</button>
+            </div>
+            <div data-f="spotList"></div>
+            <div class="hint" data-f="spotGuess"></div>
+          </details>
         </div>
       </template>
     </div>
@@ -715,7 +780,9 @@ function loadSaved() {
 function persist() {
   const data = loadSaved();
   for (const id of Object.keys(data)) data[id].tracking = false;
-  for (const t of tracked.values()) data[t.id] = { name: t.baseName, ref: t.ref, tracking: true };
+  for (const t of tracked.values()) {
+    data[t.id] = { name: t.baseName, ref: t.ref, tracking: true, nick: t.nick, alarm: t.alarm, spots: t.spots };
+  }
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (_) { /* storage unavailable */ }
 }
 
@@ -744,7 +811,7 @@ async function trackDevice(device) {
     removeTracker(t.id);
     return;
   }
-  log(`Tracking ${t.name}`);
+  log(`Tracking ${displayName(t)}`);
 }
 
 function addTracker(device) {
@@ -758,12 +825,14 @@ function addTracker(device) {
     smooth: null, lastHeard: 0, startedAt: Date.now(), lastRearm: Date.now(),
     readings: 0, restarts: 0, history: [], ui: null,
   };
+  initExtras(t, saved);
   t.onAdvertisement = event => onAdvertisement(t, event);
   device.addEventListener('advertisementreceived', t.onAdvertisement);
   t.ui = buildCard(t);
   $('prox-list').append(t.ui.root);
   tracked.set(t.id, t);
   persist();
+  syncAlarmTimer();
   if (!proxTimer) proxTimer = setInterval(tick, 1000);
   renderTracker(t);
   return t;
@@ -773,10 +842,11 @@ function buildCard(t) {
   const root = $('tracker-template').content.firstElementChild.cloneNode(true);
   const ui = { root };
   for (const node of root.querySelectorAll('[data-f]')) ui[node.dataset.f] = node;
-  ui.name.textContent = t.name;
   ui.remove.addEventListener('click', () => removeTracker(t.id));
   ui.calibrate.addEventListener('click', () => calibrate(t));
   ui.sound.addEventListener('click', () => setSound(soundId === t.id ? null : t.id));
+  t.ui = ui;
+  wireExtras(t);
   return ui;
 }
 
@@ -787,9 +857,11 @@ function removeTracker(id) {
   try { if (t.device.unwatchAdvertisements) t.device.unwatchAdvertisements(); } catch (_) { /* older API */ }
   if (t.abort) t.abort.abort();
   if (soundId === id) setSound(null);
+  t.rec = null;
   t.ui.root.remove();
   tracked.delete(id);
   persist();
+  syncAlarmTimer();
   if (!tracked.size) {
     stopScanning();
     if (proxTimer) clearInterval(proxTimer);
@@ -808,7 +880,7 @@ async function listen(t) {
     await t.device.watchAdvertisements({ signal: t.abort.signal });
     return true;
   } catch (e) {
-    log(`Could not listen to ${t.name}: ${describeError(e)}`);
+    log(`Could not listen to ${displayName(t)}: ${describeError(e)}`);
     return false;
   } finally {
     t.arming = false;
@@ -827,6 +899,11 @@ function maybeRestart(t) {
 function onAdvertisement(t, event) {
   if (typeof event.rssi !== 'number') return;
   t.readings += 1;
+  captureAdvertisement(t, event);
+  if (t.rec) {
+    t.rec.samples.push({ t: Date.now() - t.rec.start, rssi: event.rssi });
+    if (t.rec.samples.length >= MAX_SAMPLES) stopRecording(t);
+  }
   t.smooth = t.smooth === null ? event.rssi : t.smooth + 0.3 * (event.rssi - t.smooth);
   t.lastHeard = Date.now();
   t.history.push(t.smooth);
@@ -1024,6 +1101,7 @@ function renderTracker(t) {
   ui.line.setAttribute('points', points.join(' '));
   const firstX = n ? (300 - (n - 1) * step).toFixed(1) : '0';
   ui.area.setAttribute('points', n ? `${firstX},80 ${points.join(' ')} 300,80` : '');
+  renderExtras(t);
 }
 
 function calibrate(t) {
@@ -1033,7 +1111,7 @@ function calibrate(t) {
   }
   t.ref = Math.round(t.smooth);
   persist();
-  log(`${t.name}: ${t.ref} dBm now counts as 1 m.`);
+  log(`${displayName(t)}: ${t.ref} dBm now counts as 1 m.`);
   renderTracker(t);
 }
 
@@ -1042,11 +1120,7 @@ function setSound(id) {
   clearTimeout(beepTimer);
   soundId = id;
   if (id !== null) {
-    try {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      audio = audio || new Ctx();
-      audio.resume();
-    } catch (_) {
+    if (!ensureAudio()) {
       log('Sound is not available in this browser.');
       soundId = null;
     }
@@ -1068,6 +1142,7 @@ function beepLoop() {
 }
 
 function beep(freq) {
+  if (!audio) return;
   const t = audio.currentTime;
   const osc = audio.createOscillator();
   const gain = audio.createGain();
@@ -1095,6 +1170,389 @@ async function offerResume() {
       for (const device of devices) await trackDevice(device);
     });
   } catch (_) { /* not available here */ }
+}
+
+// ---------- Tracker extras: nicknames, alert, recorder, broadcast, spots ----------
+const BASE_TITLE = document.title;
+const ALARM_FAR_DBM = -85;    // a "far" alert starts below this
+const ALARM_CLEAR_DBM = -81;  // and clears above this, so it does not flicker
+const ALARM_MODES = ['off', 'far', 'lost'];
+const ALARM_TEXT = { off: 'off', far: 'when far', lost: 'when lost' };
+const MAX_SAMPLES = 3000;     // the recorder stops itself here
+const MAX_SPOTS = 12;
+let alarmTimer = null;
+
+const displayName = t => t.nick || t.name;
+
+function sanitizeSpots(value) {
+  const spots = Object.create(null);
+  if (value && typeof value === 'object') {
+    for (const [name, dbm] of Object.entries(value)) {
+      if (typeof dbm === 'number' && Number.isFinite(dbm) && name.length <= 40 && Object.keys(spots).length < MAX_SPOTS) spots[name] = dbm;
+    }
+  }
+  return spots;
+}
+
+function initExtras(t, saved) {
+  t.nick = typeof saved.nick === 'string' ? saved.nick.slice(0, 40) : '';
+  t.alarm = ALARM_MODES.includes(saved.alarm) ? saved.alarm : 'off';
+  t.spots = sanitizeSpots(saved.spots);
+  Object.assign(t, { breach: false, rec: null, lastRec: null, recShown: null, adv: null, spotsKey: null });
+}
+
+function wireExtras(t) {
+  const ui = t.ui;
+  ui.rename.addEventListener('click', () => startRename(t));
+  ui.alarm.addEventListener('click', () => cycleAlarm(t));
+  ui.record.addEventListener('click', () => toggleRecording(t));
+  ui.recSave.addEventListener('click', () => saveRecording(t));
+  ui.recCopy.addEventListener('click', () => copyRecording(t));
+  ui.recClear.addEventListener('click', () => {
+    t.lastRec = null;
+    renderExtras(t);
+  });
+  ui.spotSave.addEventListener('click', () => saveSpot(t));
+  ui.spotName.addEventListener('keydown', event => { if (event.key === 'Enter') saveSpot(t); });
+  ui.broadcast.addEventListener('toggle', () => renderExtras(t));
+}
+
+// ---- Nicknames ----
+function startRename(t) {
+  const ui = t.ui;
+  if (ui.nameBox.querySelector('input')) return;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.maxLength = 40;
+  input.value = t.nick || t.name;
+  input.className = 'rename';
+  input.setAttribute('aria-label', 'Device nickname');
+  ui.name.hidden = true;
+  ui.nameBox.prepend(input);
+  input.focus();
+  input.select();
+  let finished = false;
+  const finish = save => {
+    if (finished) return;
+    finished = true;
+    if (save) {
+      const value = input.value.trim();
+      t.nick = value && value !== t.name ? value : '';
+      persist();
+    }
+    input.remove();
+    ui.name.hidden = false;
+    renderExtras(t);
+  };
+  input.addEventListener('keydown', event => {
+    if (event.key === 'Enter') finish(true);
+    else if (event.key === 'Escape') finish(false);
+  });
+  input.addEventListener('blur', () => finish(true));
+}
+
+// ---- Alert when a device goes far or out of range ----
+function ensureAudio() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    audio = audio || new Ctx();
+    audio.resume();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function cycleAlarm(t) {
+  t.alarm = ALARM_MODES[(ALARM_MODES.indexOf(t.alarm) + 1) % ALARM_MODES.length];
+  t.breach = false;
+  if (t.alarm !== 'off' && !ensureAudio()) log('Sound is not available here, so alerts will only flash the card.');
+  persist();
+  syncAlarmTimer();
+  renderExtras(t);
+}
+
+function syncAlarmTimer() {
+  const any = [...tracked.values()].some(t => t.alarm !== 'off');
+  if (any && !alarmTimer) alarmTimer = setInterval(alarmTick, 2000);
+  if (!any && alarmTimer) {
+    clearInterval(alarmTimer);
+    alarmTimer = null;
+    document.title = BASE_TITLE;
+  }
+}
+
+function alarmTick() {
+  const breaching = [...tracked.values()].some(t => t.breach);
+  document.title = breaching ? 'Alert - ' + BASE_TITLE : BASE_TITLE;
+  if (!breaching) return;
+  beep(880);
+  setTimeout(() => beep(660), 200);
+}
+
+// ---- Signal recorder ----
+function toggleRecording(t) {
+  if (t.rec) {
+    stopRecording(t);
+    return;
+  }
+  t.rec = { start: Date.now(), samples: [] };
+  t.lastRec = null;
+  log(`Recording ${displayName(t)}. Walk around, then tap Stop.`);
+  renderExtras(t);
+}
+
+function stopRecording(t) {
+  if (!t.rec) return;
+  const rec = t.rec;
+  t.rec = null;
+  if (rec.samples.length) {
+    t.lastRec = rec;
+    log(`Recording stopped: ${rec.samples.length} readings over ${Math.round((Date.now() - rec.start) / 1000)} s.`);
+  } else {
+    log('Nothing was recorded. Wait until readings arrive, then try again.');
+  }
+  renderExtras(t);
+}
+
+function renderRecording(t) {
+  const ui = t.ui;
+  ui.rec.hidden = !t.lastRec;
+  if (!t.lastRec) {
+    t.recShown = null;
+    return;
+  }
+  if (t.recShown === t.lastRec) return;
+  t.recShown = t.lastRec;
+  const samples = t.lastRec.samples;
+  const duration = Math.max(1, samples[samples.length - 1].t);
+  const values = samples.map(s => s.rssi);
+  const avg = values.reduce((a, b) => a + b, 0) / values.length;
+  const x = ms => 30 + (ms / duration) * 264;
+  const y = rssi => 8 + (1 - signalLevel(rssi)) * 80;
+  ui.recLine.setAttribute('points', samples.map(s => `${x(s.t).toFixed(1)},${y(s.rssi).toFixed(1)}`).join(' '));
+  ui.recEnd.textContent = `${Math.round(duration / 1000)} s`;
+  ui.recStats.textContent = `${samples.length} readings over ${Math.round(duration / 1000)} s. Strongest ${Math.max(...values)} dBm, weakest ${Math.min(...values)} dBm, average ${Math.round(avg)} dBm.`;
+}
+
+function recordingCsv(t) {
+  const rows = ['seconds,rssi_dbm'];
+  for (const s of t.lastRec.samples) rows.push(`${(s.t / 1000).toFixed(2)},${s.rssi}`);
+  return rows.join('\n') + '\n';
+}
+
+async function saveRecording(t) {
+  if (!t.lastRec) return;
+  const text = recordingCsv(t);
+  const stamp = new Date(t.lastRec.start).toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  const base = displayName(t).replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'device';
+  const filename = `signal-${base}-${stamp}.csv`;
+  try {
+    const file = new File([text], filename, { type: 'text/csv' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: filename });
+      log(`Shared ${filename}`);
+      return;
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+  }
+  try {
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/csv' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    log(`Saved ${filename}. If nothing downloaded, use Copy CSV instead.`);
+  } catch (e) {
+    log(`Could not save the file: ${describeError(e)}. Use Copy CSV instead.`);
+  }
+}
+
+async function copyRecording(t) {
+  if (!t.lastRec) return;
+  try {
+    await navigator.clipboard.writeText(recordingCsv(t));
+    log('CSV copied. Paste it into Notes or a spreadsheet.');
+  } catch (_) {
+    log('Copying was blocked here. Try Save file instead.');
+  }
+}
+
+// ---- What a device broadcasts ----
+const COMPANIES = {
+  0x0006: 'Microsoft', 0x004c: 'Apple', 0x0059: 'Nordic Semiconductor', 0x0075: 'Samsung Electronics',
+  0x009e: 'Bose', 0x00e0: 'Google', 0x02e5: 'Espressif',
+};
+const APPLE_TYPES = {
+  0x05: 'AirDrop', 0x07: 'Proximity Pairing (AirPods and similar)', 0x09: 'AirPlay target',
+  0x0c: 'Handoff', 0x0f: 'Nearby Action', 0x10: 'Nearby Info', 0x12: 'Find My network',
+};
+
+const companyName = id => COMPANIES[id] || 'Unknown company';
+const hexBytes = bytes => [...bytes].map(b => b.toString(16).padStart(2, '0')).join(' ');
+
+function captureAdvertisement(t, event) {
+  const bytesOf = view => new Uint8Array(view.buffer, view.byteOffset, view.byteLength).slice();
+  const adv = {
+    name: event.name || '',
+    txPower: typeof event.txPower === 'number' ? event.txPower : null,
+    appearance: typeof event.appearance === 'number' ? event.appearance : null,
+    uuids: Array.from(event.uuids || []).map(String),
+    manufacturer: [],
+    service: [],
+  };
+  try {
+    if (event.manufacturerData) for (const [id, view] of event.manufacturerData) adv.manufacturer.push({ id, bytes: bytesOf(view) });
+  } catch (_) { /* not provided */ }
+  try {
+    if (event.serviceData) for (const [uuid, view] of event.serviceData) adv.service.push({ uuid: String(uuid), bytes: bytesOf(view) });
+  } catch (_) { /* not provided */ }
+  t.adv = adv;
+}
+
+function decodeApple(bytes) {
+  const type = bytes[0];
+  if (type === undefined) return null;
+  if (type === 0x02 && bytes[1] === 0x15 && bytes.length >= 23) {
+    const hex = [...bytes.slice(2, 18)].map(b => b.toString(16).padStart(2, '0')).join('');
+    const uuid = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    const power = bytes[22] > 127 ? bytes[22] - 256 : bytes[22];
+    return `iBeacon, id ${uuid}, major ${(bytes[18] << 8) | bytes[19]}, minor ${(bytes[20] << 8) | bytes[21]}, power at 1 m ${power} dBm`;
+  }
+  return APPLE_TYPES[type] ? `Apple message: ${APPLE_TYPES[type]}` : `Apple message type 0x${type.toString(16)}`;
+}
+
+function decodeEddystone(bytes) {
+  const frame = bytes[0];
+  if (frame === 0x00) return 'Eddystone-UID frame';
+  if (frame === 0x20) return 'Eddystone-TLM frame (telemetry)';
+  if (frame === 0x30) return 'Eddystone-EID frame';
+  if (frame === 0x10) {
+    const prefixes = ['http://www.', 'https://www.', 'http://', 'https://'];
+    const endings = ['.com/', '.org/', '.edu/', '.net/', '.info/', '.biz/', '.gov/', '.com', '.org', '.edu', '.net', '.info', '.biz', '.gov'];
+    let url = prefixes[bytes[2]] || '';
+    for (let i = 3; i < bytes.length; i++) url += bytes[i] < endings.length ? endings[bytes[i]] : String.fromCharCode(bytes[i]);
+    return `Eddystone-URL frame: ${url}`;
+  }
+  return null;
+}
+
+function describeAdv(adv) {
+  if (!adv) return 'Nothing received yet. Wait for a reading.';
+  const lines = [`Name: ${adv.name || '(none broadcast)'}`];
+  if (adv.txPower !== null) lines.push(`Transmit power: ${adv.txPower} dBm`);
+  if (adv.appearance !== null) lines.push(`Appearance code: 0x${adv.appearance.toString(16).toUpperCase()}`);
+  if (adv.uuids.length) {
+    lines.push('Services announced:');
+    for (const uuid of adv.uuids) lines.push(`  ${knownName(uuid, SERVICES) || 'Custom'}  ${shortLabel(uuid)}`);
+  }
+  for (const m of adv.manufacturer) {
+    lines.push(`Manufacturer: ${companyName(m.id)} (0x${m.id.toString(16).toUpperCase().padStart(4, '0')})`);
+    const detail = m.id === 0x004c ? decodeApple(m.bytes) : null;
+    if (detail) lines.push(`  ${detail}`);
+    lines.push(`  data: ${hexBytes(m.bytes) || '(empty)'}`);
+  }
+  for (const s of adv.service) {
+    lines.push(`Service data for ${knownName(s.uuid, SERVICES) || shortLabel(s.uuid)}:`);
+    const detail = shortId(s.uuid) === 0xfeaa ? decodeEddystone(s.bytes) : null;
+    if (detail) lines.push(`  ${detail}`);
+    lines.push(`  data: ${hexBytes(s.bytes) || '(empty)'}`);
+  }
+  if (!adv.manufacturer.length && !adv.service.length && !adv.uuids.length) {
+    lines.push('No extra data. The device may broadcast very little, or this browser may not pass it along.');
+  }
+  lines.push('', 'What this means:', '  Everything above is sent in the open. Anyone within Bluetooth range can read it without pairing.');
+  if (adv.name) lines.push('  The name is part of the broadcast, so anyone nearby can see it.');
+  if (adv.manufacturer.length) lines.push('  The manufacturer code shows who made the device or its chip.');
+  return lines.join('\n');
+}
+
+// ---- Spots: guess where a device is from its signal ----
+function saveSpot(t) {
+  const name = t.ui.spotName.value.trim().slice(0, 40);
+  const live = t.smooth !== null && Date.now() - t.lastHeard <= lostAfter();
+  if (!name) {
+    log('Type a name for this spot first.');
+    return;
+  }
+  if (!live) {
+    log('There is no current signal. Wait for a reading, then save the spot.');
+    return;
+  }
+  if (!(name in t.spots) && Object.keys(t.spots).length >= MAX_SPOTS) {
+    log(`You can save up to ${MAX_SPOTS} spots per device. Delete one first.`);
+    return;
+  }
+  const recent = t.history.slice(-5);
+  t.spots[name] = Math.round(recent.reduce((a, b) => a + b, 0) / recent.length);
+  t.ui.spotName.value = '';
+  persist();
+  renderExtras(t);
+  log(`Saved spot "${name}" at ${t.spots[name]} dBm.`);
+}
+
+function guessSpot(t, live) {
+  const entries = Object.entries(t.spots);
+  if (entries.length < 2) return { long: 'Save at least two spots to get a guess.', short: '' };
+  if (!live) return { long: 'No current signal.', short: '' };
+  const ranked = entries.map(([name, dbm]) => ({ name, off: Math.abs(dbm - t.smooth) })).sort((a, b) => a.off - b.off);
+  const strong = ranked[0].off <= 5 && ranked[1].off - ranked[0].off >= 4;
+  const text = `${strong ? 'Looks like' : 'Maybe'}: ${ranked[0].name}`;
+  return { long: `${text} (${Math.round(ranked[0].off)} dB off)`, short: text };
+}
+
+function renderSpots(t, live) {
+  const key = JSON.stringify(t.spots);
+  if (key !== t.spotsKey) {
+    t.spotsKey = key;
+    t.ui.spotList.replaceChildren();
+    for (const [name, dbm] of Object.entries(t.spots)) {
+      const del = el('button', { class: 'small', text: 'Delete' });
+      del.addEventListener('click', () => {
+        delete t.spots[name];
+        persist();
+        renderExtras(t);
+      });
+      t.ui.spotList.append(el('div', { class: 'spot' }, [
+        el('span', { class: 'grow name', text: name }),
+        el('span', { class: 'uuid', text: `${dbm} dBm` }),
+        del,
+      ]));
+    }
+  }
+  const guess = guessSpot(t, live);
+  t.ui.spotGuess.textContent = guess.long;
+  t.ui.spotLine.textContent = guess.short;
+}
+
+// ---- Rendering for all extras, called whenever a card updates ----
+function renderExtras(t) {
+  const ui = t.ui;
+  ui.name.textContent = displayName(t);
+  ui.realname.textContent = t.nick ? t.name : '';
+  ui.realname.hidden = !t.nick;
+
+  const heard = t.smooth !== null;
+  const lost = heard && Date.now() - t.lastHeard > lostAfter();
+  const was = t.breach;
+  if (t.alarm === 'lost') t.breach = lost;
+  else if (t.alarm === 'far') t.breach = heard && (lost || t.smooth < (was ? ALARM_CLEAR_DBM : ALARM_FAR_DBM));
+  else t.breach = false;
+  if (t.breach !== was) log(t.breach ? `Alert: ${displayName(t)} is ${lost ? 'out of range' : 'far away'}.` : `${displayName(t)} is back in range.`);
+  ui.root.dataset.alarm = t.breach ? 'on' : 'off';
+  ui.alarm.textContent = `Alert: ${ALARM_TEXT[t.alarm]}`;
+  ui.alarm.classList.toggle('on', t.alarm !== 'off');
+
+  ui.record.textContent = t.rec ? `Stop (${t.rec.samples.length})` : 'Record';
+  ui.record.classList.toggle('on', Boolean(t.rec));
+  renderRecording(t);
+
+  if (ui.broadcast.open) ui.adv.textContent = describeAdv(t.adv);
+  renderSpots(t, heard && !lost);
 }
 
 // ---------- Tabs ----------
@@ -1143,7 +1601,7 @@ $('prox-mode').addEventListener('change', event => {
   try { localStorage.setItem(MODE_KEY, modeChoice); } catch (_) { /* storage unavailable */ }
   applyMode();
 });
-const VERSION = '9 (new look)';
+const VERSION = '10 (alerts, recorder, nicknames, decoder, spots)';
 $('version').textContent = 'Version ' + VERSION + '.';
 log('BLE Inspector version ' + VERSION);
 loadMode();
