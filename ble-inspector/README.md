@@ -5,6 +5,14 @@ A single-file web page (`index.html`) with two tools for Bluetooth Low Energy de
 - **Inspect**: connects to a device and shows its services, characteristics, and values. Read-only.
 - **Proximity**: listens to the broadcasts of one or more devices (up to 6) and shows, for each, a live signal-strength reading, a close/far label, a rough distance, a short history graph, and an optional beeping sound that speeds up as you get closer. Calibration is remembered on the phone. Needs a browser that supports `watchAdvertisements` (Bluefy does on iPhone). A **Listening mode** setting picks how several devices are tracked: one continuous scan for all of them, each device restarted together, or devices taking turns. Automatic tries the first that works and switches to taking turns if one device keeps going quiet while another is heard. The distance is only a rough guess, so use "Calibrate at 1 m" to calibrate.
 
+Each tracked device card also has:
+
+- **Rename**: give a device a nickname. It is remembered on the phone.
+- **Alert**: beeps and flashes the card when the device gets far or goes out of range. The alert tone is two notes, so it sounds different from the proximity beeps.
+- **Record**: logs the signal while you walk around, draws a graph, and saves or copies the data as a CSV file.
+- **What it broadcasts**: decodes what the device announces in the open (name, services, manufacturer, iBeacon, Eddystone-URL, common Apple message types) and explains what that reveals to anyone nearby.
+- **Spots**: save the signal at named places. The card then guesses which spot a device is closest to.
+
 ## Use it on a phone
 
 Web Bluetooth needs a secure page (`https://` or `localhost`) and a supporting browser:
